@@ -1,5 +1,4 @@
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 library(dplyr)
 library(tidyr)
 library(testthat)
@@ -221,13 +220,35 @@ write.csv(out_df,
           'results/ml_mod_sel/surv/surv_best_mod.csv',
           row.names=F)
 
+# evidence for temperature:location interaction ---------------------------------------
+
+# weak evidence for site by location interaction
+best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                            (0 + log_area_t0 | year) + (0 + log_area_t0 | location),
+                  data=surv_clim, family='binomial')
+mod1     <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                            tmp_tm1:location + 
+                            (0 + log_area_t0 | year) + (0 + log_area_t0 | location),
+                  data=surv_clim, family='binomial')
+mod2     <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                            tmp_tm1:location + 
+                            (0 + log_area_t0 | year) + (1 | location),
+                  data=surv_clim, family='binomial')
+
+mod3     <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                            tmp_tm1:location + 
+                            (0 + log_area_t0 | year),
+                  data=surv_clim, family='binomial')
+
+
 
 # plot ---------------------------------------------------------------
 
-best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 +tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                            (1 | year) + (1 | location) +
+                            (0 + log_area_t0 | year) + (0 + log_area_t0 | location),
                   data=surv_clim, family='binomial')
   
-
 coefs  <- fixef(best_mod)
 
 # quantiles of climate predictor
@@ -263,6 +284,9 @@ legend(2.2,0.6,
        col = c('blue','red'), bty = 'n', cex = 2)
 
 dev.off()
+
+
+best_mod %>% coef
 
 
 # exploratory graphs --------------------------------------------------------------------
