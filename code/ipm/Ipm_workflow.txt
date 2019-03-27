@@ -1,0 +1,13 @@
+IPM_workflow
+
+Two stage IPMs: Seedlings + plants
+Unintentional eviction?
+
+Modeling
+	LTRE
+	Stochastic population growth
+
+	
+Missing Vital rates work:
+	Recruitment ~ Fertility
+	All best models through BAYES

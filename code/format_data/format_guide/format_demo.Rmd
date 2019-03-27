@@ -1,0 +1,92 @@
+---
+title: "Mini-guide to formatting census demographic data in R"
+author: "Aldo Compagnoni"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Introduction: the general issue
+
+Formatting census demographic data in R could be a tricky endeavor, even for the experienced programmer. In general, we will need to transform census data into _transition_ data: we need to combine the census data at an initial time (let's call it time t0), with the census of the same individuals in the next time step (generally the follwing year, let's call it time t1). However, we usually start with census data refers to one year only. We usually have the individual id, the year of collection, and some demographic measure:
+
+1. One year only data is just as good if you want to calculate year specific proportions
+2. However, in demography we generally need to have a transition (e.g. survival from time t0 to time t1).
+
+# The simplest case possible
+
+In the simplest case possible, we have two individuals, and only one demographic observation. Below I give an example of two individuals for which we record reproductive stage (N: not reproductive, R: reproductive):
+
+```{r}
+# Imagine you have two individuals at time t0 and time t1
+census_df <- data.frame( id    = c(1,2,1,2),
+                         year  = c(2001, 2001, 2002, 2002),
+                         stage = c('R', 'N', 'N', 'R'),
+                         stringsAsFactors = F)
+census_df
+```
+
+What we would need to enable analysis is a data frame that contains stage of individuals at time t0 and the next year, at time t1. Doing this is straightforward:
+
+1. Create a data frame that contains census data at stage t0.
+2. Create a data frame that contains census data at stage t1, _AND_ pretend that this data was collected the year before (see following point):
+3. Join them together using a merge or a function in the `join` family, if you are using the `tidyverse` coding framework. To join the two 
+
+
+```{r, warning=FALSE, message=FALSE}
+# load dplyr, to facilitate data manipulation
+library(dplyr)
+
+# data frame with census data at time t0 
+cns_df_t0 <- census_df %>% 
+                rename( stage_t0 = stage )
+
+# data frame with census data at time t1
+cns_df_t1 <- cns_df_t0 %>% 
+                rename( stage_t1 = stage_t0 ) %>% 
+                mutate( year = year - 1 )
+
+# put the two data frames together
+inner_join( cns_df_t0, cns_df_t1) %>% 
+                rename( year_t0 = year )
+```
+
+And here you have it: now you can model . 
+
+## Easy, right? Not so fast: what if you have missing individuals from year to year?
+
+```{r, warning=FALSE, message=FALSE}
+# 1. why using inner_join "lost" individuals?
+# 2. Why even a left_join excluded individuals?
+# why using a 
+census_df <- data.frame( id    = c(1,2,1,2,3),
+                         year  = c(2001, 2001, 2002, 2002, 2001),
+                         stage = c('R', 'N', 'N', 'R', 'R'),
+                         stringsAsFactors = F)
+
+# data frame with census data at time t0 
+cns_df_t0 <- census_df %>% 
+                rename( stage_t0 = stage )
+
+# data frame with census data at time t1
+cns_df_t1 <- cns_df_t0 %>% 
+                rename( stage_t1 = stage_t0 ) %>% 
+                mutate( year = year - 1 )
+
+# put the two data frames together
+innr_cns   <- inner_join( cns_df_t0, cns_df_t1 ) %>% 
+                rename( stage_t1 = stage_t0 ) %>% 
+                arrange(year,id)
+left_cns   <- left_join( cns_df_t0, cns_df_t1 ) %>%
+                rename( stage_t1 = stage_t0 ) %>% 
+                arrange(year,id)
+full_cns   <- full_join( cns_df_t0, cns_df_t1 ) %>% 
+                rename( stage_t1 = stage_t0 ) %>% 
+                arrange(year,id)
+```
+
+# tests
+
+The results of `full_join` are the safest, but it looks confusing. How do we make sure not to loose demographic data? We need to run tests
+
+1. Check that you didn't loose individuals at t0
+2. Check that you didn't loose individuals at t1

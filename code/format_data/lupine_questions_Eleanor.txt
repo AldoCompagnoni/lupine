@@ -1,0 +1,47 @@
+REMARKS ------------------------------------------------------------
+
+THIS IS REAL:
+No 2007-2008 survival data for SeedLings in NB. All 2008 stage information for those 7 individuals is NA in 2008.
+
+How to update 2005_2008 data including the subdivision of the locations?
+	Blowout did not start until 2008
+
+Pop8 has GPS coord for 6 plants
+
+
+QUESTIONS ----------------------------------------------------------
+
+PROBLEMS WITH INDIVIDUAL 10074
+		
+PROBLEMS WITH INDIVIDUALs 777, 746, 735. These are in ATT (8) in both 2005_2008 data, and post 2008 data. However, pre- and post- 2008 individuals are clearly different. E.g. 777 and 746 start off as adults, but become seedlings after 2008. 
+
+CHECK TO MAKE SURE
+885, 887: size information from individuals that have died?
+
+
+NEEDs --------------------------------------------------------------
+
+Decide what model to use
+	Split dataset in two: age 1,2, then all other plants
+	Fit split to age
+	Is age a fixed effect, and size*age changes 
+	
+	Sample size when NA.omit for both size and age
+	
+	Plot survival ~ size by age 1, 2, 3, 4, 5.... 
+
+
+Re-do vital rate explorative graphs
+Re-do graphs using difference in growth
+
+
+
+Write GOOD unit tests?
+	1. Check area_t0/t1 == 0
+	3. D_t1 with area_t1
+
+Re-check AGE information for potential mistakes?
+
+Checks
+	numall_t1 CONDITIONAL ON flow_t1 == 0
+	growth conditional on survival
