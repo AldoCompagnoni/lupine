@@ -53,10 +53,14 @@ enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
               year_anom('oni')
 
+spei_mat <- subset(clim, clim_var == 'spei' ) %>%
+              spei_clim_form(years, m_back, m_obs) %>% 
+              year_anom('spei')
+
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) ) %>% 
-              gather(measure, anomaly, ppt_t0:oni_t0_tm2) 
+                    list(ppt_mat,tmp_mat,enso_mat,spei_mat) ) %>% 
+              gather(measure, anomaly, ppt_t0:spei_t0_tm2)
 
 
 # climate anomalies by year ------------------------
@@ -75,7 +79,7 @@ clim_mat %>%
          axis.text  = element_text( size  = 20,
                                     angle = 90) ) + 
   ggsave('results/climate/anomalies_vs_year.tiff',
-         width=6.3,height=4,compression='lzw')
+         width=12,height=5,compression='lzw')
   
 
 # histograms of anomalies -------------------------------------
@@ -124,5 +128,5 @@ p3 <- clim_mat %>%
 g <- arrangeGrob(p1,p2,p3,nrow=3,ncol=1)
 ggsave(filename = 'results/climate/anom_hist.tiff',
        plot = g,
-       dpi = 300, width = 6.3, height = 4, units = "in",
+       dpi = 300, width = 8, height = 6, units = "in",
        compression = 'lzw')
