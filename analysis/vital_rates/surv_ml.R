@@ -61,10 +61,13 @@ enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
               year_anom('oni')
 
+spei_mat <- subset(clim, clim_var == 'spei' ) %>%
+              spei_clim_form(years, m_back, m_obs) %>% 
+              year_anom('spei')
+
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
-
+                    list(ppt_mat,tmp_mat,enso_mat,spei_mat) )
 
 # demography plus clim
 surv_clim <- left_join(surv, clim_mat) %>%
@@ -171,7 +174,13 @@ climate_mods <- list(
   surv_t1 ~ log_area_t0 + oni_t0 + (log_area_t0 | year) + (log_area_t0 | location),
   surv_t1 ~ log_area_t0 + oni_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
   surv_t1 ~ log_area_t0 + oni_t0_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
-  surv_t1 ~ log_area_t0 + oni_t0_tm2 + (log_area_t0 | year) + (log_area_t0 | location)
+  surv_t1 ~ log_area_t0 + oni_t0_tm2 + (log_area_t0 | year) + (log_area_t0 | location),
+
+  # spei
+  surv_t1 ~ log_area_t0 + spei_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + spei_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + spei_t0_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + spei_t0_tm2 + (log_area_t0 | year) + (log_area_t0 | location)
   
 )
 
@@ -179,9 +188,10 @@ climate_mods <- list(
 mod_clim <- lapply( climate_mods,
                      function(x) glmer(x, data=surv_clim, family='binomial') ) %>% 
                 setNames( c( 'null',
-                             'ppt_t0', 'ppt_tm1', 'ppt_t0_tm1', 'ppt_t0_tm2',
-                             'tmp_t0', 'tmp_tm1', 'tmp_t0_tm1', 'tmp_t0_tm2',
-                             'oni_t0', 'oni_tm1', 'oni_t0_tm1', 'oni_t0_tm2') )
+                             'ppt_t0',  'ppt_tm1',  'ppt_t0_tm1',  'ppt_t0_tm2',
+                             'tmp_t0',  'tmp_tm1',  'tmp_t0_tm1',  'tmp_t0_tm2',
+                             'oni_t0',  'oni_tm1',  'oni_t0_tm1',  'oni_t0_tm2',
+                             'spei_t0', 'spei_tm1', 'spei_t0_tm1', 'spei_t0_tm2') )
 
 AICtab(mod_clim, weights=T)
 
@@ -198,7 +208,7 @@ write.csv(out, 'results/ml_mod_sel/surv/surv_mod_sel_no2.csv', row.names=F)
 
 # oni_t0_tm1
 # best_mod <- mod_clim[[out$model[1]]]
-best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 +tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
                   data=surv_clim, family='binomial')
   
 
@@ -269,9 +279,6 @@ dev.off()
 # year-by-site plots ----------------------------------------------------------------
 
 
-plot_binned_prop(surv, 10, log_area_t0, surv_t1)
-
-
 # data frame of binned proportions
 df_binned_prop <- function(ii, df_in, n_bins, siz_var, rsp_var, s_y_df){
   
@@ -314,6 +321,11 @@ df_binned_prop <- function(ii, df_in, n_bins, siz_var, rsp_var, s_y_df){
   
 }
 
+# grid of year/location
+s_y_df      <- expand.grid( year     = surv_clim$year %>% unique %>% sort,
+                            location = surv_clim$location %>% unique %>% sort,
+                            stringsAsFactors = F)
+
 # produce data frames 
 surv_bin_l  <- lapply(1:nrow(s_y_df), df_binned_prop, surv_clim, 10, 
                                       log_area_t0, surv_t1, s_y_df)
@@ -325,7 +337,10 @@ surv_bin_df <- bind_rows( surv_bin_l ) %>%
                           tmp_tm1      = 0,
                           transition   = paste( paste0(year - 1), 
                                                 substr(paste0(year),3,4),
-                                                sep='-') ) %>% 
+                                                sep='-') )
+
+# add predictions
+surv_bin_df <- surv_bin_df %>% 
                   mutate( yhat         = predict(best_mod, 
                                                  newdata=surv_bin_df, 
                                                  type='response') )
@@ -335,12 +350,14 @@ surv_bin_df <- bind_rows( surv_bin_l ) %>%
 ggplot(data  = surv_bin_df, 
        aes(x = log_area_t0, 
            y = surv_t1) ) +
-  geom_point(alpha = 0.5,
+  geom_point(alpha = 1,
              pch   = 16,
-             size  = 0.5 ) +
+             size  = 0.5,
+             color = 'red' ) +
   geom_line(aes(x = log_area_t0,
                 y = yhat),
-            lwd = 1 )+
+            lwd = 1,
+            alpha = 0.5 )+
   # split in panels
   facet_grid(location ~ transition) +
   theme_bw() +
@@ -355,7 +372,7 @@ ggplot(data  = surv_bin_df,
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
          panel.spacing = unit('0.5',unit='mm') ) +
   ggtitle("Survival of adults plants" ) + 
-  ggsave(filename = "results/vital_rates/surv_checks.tiff",
+  ggsave(filename = "results/vital_rates/surv_adults.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
 

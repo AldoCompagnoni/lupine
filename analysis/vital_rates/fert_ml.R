@@ -1,5 +1,4 @@
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 library(dplyr)
 library(tidyr)
 library(ggplot2)
@@ -71,10 +70,13 @@ enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
               year_anom('oni')
 
+spei_mat <- subset(clim, clim_var == 'spei' ) %>%
+              spei_clim_form(years, m_back, m_obs) %>% 
+              year_anom('spei')
+
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
-
+                    list(ppt_mat, tmp_mat, enso_mat, spei_mat) )
 
 # demography plus clim
 fert_clim  <- left_join(fert, clim_mat) %>%
@@ -183,7 +185,13 @@ climate_mods <- list(
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid)
+  numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+
+  # spei
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid)
 
 )
 
@@ -208,7 +216,13 @@ climate_mods <- list(
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0 + (log_area_t1 | year) + (log_area_t1 | location),
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_tm1 + (log_area_t1 | year) + (log_area_t1 | location),
   numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm1 + (log_area_t1 | year) + (log_area_t1 | location),
-  numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location)
+  numrac_t1 ~ log_area_t1 + log_area_t12 + oni_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location),
+
+  # spei
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0 + (log_area_t1 | year) + (log_area_t1 | location),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_tm1 + (log_area_t1 | year) + (log_area_t1 | location),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0_tm1 + (log_area_t1 | year) + (log_area_t1 | location),
+  numrac_t1 ~ log_area_t1 + log_area_t12 + spei_t0_tm2 + (log_area_t1 | year) + (log_area_t1 | location)
 
 )
 
@@ -217,9 +231,10 @@ climate_mods <- list(
 mod_clim <- lapply( climate_mods,
                 function(x) glmer(x, data=fert_clim, family='poisson') ) %>% 
               setNames( c( 'null',
-                           'ppt_t0', 'ppt_tm1', 'ppt_t0_tm1', 'ppt_t0_tm2',
-                           'tmp_t0', 'tmp_tm1', 'tmp_t0_tm1', 'tmp_t0_tm2',
-                           'oni_t0', 'oni_tm1', 'oni_t0_tm1', 'oni_t0_tm2') )
+                           'ppt_t0',  'ppt_tm1',  'ppt_t0_tm1',  'ppt_t0_tm2',
+                           'tmp_t0',  'tmp_tm1',  'tmp_t0_tm1',  'tmp_t0_tm2',
+                           'oni_t0',  'oni_tm1',  'oni_t0_tm1',  'oni_t0_tm2',
+                           'spei_t0', 'spei_tm1', 'spei_t0_tm1', 'spei_t0_tm2') )
 
 AICtab(mod_clim, weights=T)
 

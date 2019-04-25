@@ -1,5 +1,4 @@
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 library(dplyr)
 library(tidyr)
 library(testthat)
@@ -70,9 +69,13 @@ enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
               year_anom('oni')
 
+spei_mat <- subset(clim, clim_var == 'spei' ) %>%
+              spei_clim_form(years, m_back, m_obs) %>% 
+              year_anom('spei')
+
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
+                    list(ppt_mat,tmp_mat,enso_mat,spei_mat) )
 
 
 # demography plus clim
@@ -141,7 +144,13 @@ climate_mods <- list(
   surv_t1 ~ log_area_t0 + log_area_t02 + oni_t0 + (log_area_t0 | year) + (1 | location),
   surv_t1 ~ log_area_t0 + log_area_t02 + oni_tm1 + (log_area_t0 | year) + (1 | location),
   surv_t1 ~ log_area_t0 + log_area_t02 + oni_t0_tm1 + (log_area_t0 | year) + (1 | location),
-  surv_t1 ~ log_area_t0 + log_area_t02 + oni_t0_tm2 + (log_area_t0 | year) + (1 | location)
+  surv_t1 ~ log_area_t0 + log_area_t02 + oni_t0_tm2 + (log_area_t0 | year) + (1 | location),
+  
+  # spei
+  surv_t1 ~ log_area_t0 + log_area_t02 + spei_t0 + (log_area_t0 | year) + (1 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + spei_tm1 + (log_area_t0 | year) + (1 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + spei_t0_tm1 + (log_area_t0 | year) + (1 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + spei_t0_tm2 + (log_area_t0 | year) + (1 | location)
   
 )
 
@@ -149,9 +158,10 @@ climate_mods <- list(
 mod_clim <- lapply( climate_mods,
                 function(x) glmer(x, data = sl_clim, family='binomial') ) %>% 
               setNames( c( 'null',
-                           'ppt_t0', 'ppt_tm1', 'ppt_t0_tm1', 'ppt_t0_tm2',
-                           'tmp_t0', 'tmp_tm1', 'tmp_t0_tm1', 'tmp_t0_tm2',
-                           'oni_t0', 'oni_tm1', 'oni_t0_tm1', 'oni_t0_tm2') )
+                           'ppt_t0',  'ppt_tm1',  'ppt_t0_tm1',  'ppt_t0_tm2',
+                           'tmp_t0',  'tmp_tm1',  'tmp_t0_tm1',  'tmp_t0_tm2',
+                           'oni_t0',  'oni_tm1',  'oni_t0_tm1',  'oni_t0_tm2',
+                           'spei_t0', 'spei_tm1', 'spei_t0_tm1', 'spei_t0_tm2') )
 
 # out data frame
 out <- data.frame( model  = AICtab(mod_clim, weights=T) %>% attributes %>% .$row.names,
@@ -228,49 +238,153 @@ legend(2.2,0.6,
 
 dev.off()
 
-# exploratory graphs --------------------------------------------------------------------
 
-# sample sizes
-rep_df  <- sl_clim %>% 
-              group_by( year, location ) %>% 
-              summarise( succ  = sum(surv_t1, na.rm=T),
-                         fail  = sum(surv_t1 == 0, na.rm=T) ) %>% 
-              ungroup %>% 
-              mutate( tot = succ + fail,
-                      n_i = round(succ/(succ+fail),1),
-                      y = 0.8) %>% 
-              as.data.frame %>% 
-              select(year,location, n_i, tot, y ) 
+# year-by-site plots ----------------------------------------------------------------
 
 
-# Make the multi-panel plot 
-ggplot(data  = sl_clim, 
+# data frame of binned proportions
+df_binned_prop <- function(ii, df_in, n_bins, siz_var, rsp_var, s_y_df){
+  
+  # make sub-selection of data
+  df   <- subset(df_in, year     == s_y_df$year[ii] & 
+                        location == s_y_df$location[ii] )
+  
+  if( nrow(df) == 0 ) return( NULL)
+  
+  size_var <- deparse( substitute(siz_var) )
+  resp_var <- deparse( substitute(rsp_var) )
+  
+  # binned survival probabilities
+  h    <- (max(df[,size_var],na.rm=T) - min(df[,size_var],na.rm=T)) / n_bins
+  lwr  <- min(df[,size_var],na.rm=T) + (h*c(0:(n_bins-1)))
+  upr  <- lwr + h
+  mid  <- lwr + (1/2*h)
+  
+  binned_prop <- function(lwr_x, upr_x, response){
+    
+    id  <- which(df[,size_var] > lwr_x & df[,size_var] < upr_x) 
+    tmp <- df[id,]
+    
+    if( response == 'prob' ){   return( sum(tmp[,resp_var],na.rm=T) / nrow(tmp) ) }
+    if( response == 'n_size' ){ return( nrow(tmp) ) }
+    
+  }
+  
+  y_binned <- Map(binned_prop, lwr, upr, 'prob') %>% unlist
+  x_binned <- mid
+  y_n_size <- Map(binned_prop, lwr, upr, 'n_size') %>% unlist
+  
+  # output data frame
+  data.frame( xx = x_binned, 
+              yy  = y_binned,
+              nn  = y_n_size) %>% 
+    setNames( c(size_var, resp_var, 'n_size') ) %>% 
+    mutate( year     = s_y_df$year[ii], 
+            location = s_y_df$location[ii] )
+  
+}
+
+# grid of year/location
+s_y_df      <- expand.grid( year     = sl_clim$year %>% unique %>% sort,
+                            location = sl_clim$location %>% unique %>% sort,
+                            stringsAsFactors = F)
+
+# produce data frames 
+surv_bin_l  <- lapply(1:nrow(s_y_df), df_binned_prop, sl_clim, 10, 
+                                      log_area_t0, surv_t1, s_y_df)
+
+# big data frame
+surv_bin_df <- bind_rows( surv_bin_l ) %>% 
+                  mutate( log_area_t02 = log_area_t0^2, 
+                          log_area_t03 = log_area_t0^3,
+                          tmp_tm1      = 0,
+                          transition   = paste( paste0(year - 1), 
+                                                substr(paste0(year),3,4),
+                                                sep='-') )
+
+# add predictions
+surv_bin_df <- surv_bin_df %>% 
+                  mutate( yhat         = predict(best_mod, 
+                                                 newdata=surv_bin_df, 
+                                                 type='response') )
+
+
+# plot it all out
+ggplot(data  = surv_bin_df, 
        aes(x = log_area_t0, 
            y = surv_t1) ) +
-  geom_point(alpha = 0.5,
-             pch = 1) +
-  # Fit linear Regression
-  geom_smooth(method = "glm", 
-              method.args = list(family = "binomial"),
-              size = 0.5) +
+  geom_point(alpha = 1,
+             pch   = 16,
+             size  = 0.5,
+             color = 'red' ) +
+  geom_line(aes(x = log_area_t0,
+                y = yhat),
+            lwd = 1,
+            alpha = 0.5 )+
   # split in panels
-  facet_grid(location ~ year) +
+  facet_grid(location ~ transition) +
   theme_bw() +
-  ggtitle("Survival (stage_t0 <> SL, surv_t1 <> NA, area_t0 <> 0)") +
-  geom_text(
-    data    = rep_df,
-    mapping = aes(x = -Inf, y = -Inf, label = n_i),
-    hjust   = -0.1,
-    vjust   = -1
-  ) +
-   geom_text(
-    data    = rep_df,
-    mapping = aes(x = -Inf, y = y, label = tot),
-    hjust   = -0.1,
-    vjust   = -1
-  ) +
-  ggsave(filename = "results/ml_mod_sel/surv_sl_checks.png",
-         dpi = 300, width = 50, height = 30, units = "cm")
+  theme( axis.text = element_text( size = 5 ),
+         title     = element_text( size = 10 ),
+         strip.text.y  = element_text( size = 5,
+                                       margin = margin(0.5,0.5,0.5,0.5,
+                                                       'mm') ),
+         strip.text.x  = element_text( size = 5,
+                                       margin = margin(0.5,0.5,0.5,0.5,
+                                                       'mm') ),
+         strip.switch.pad.wrap = unit('0.5',unit='mm'),
+         panel.spacing = unit('0.5',unit='mm') ) +
+  ylab( "Seedlings survival" ) +
+  ggtitle("Seedling survival" ) + 
+  ggsave(filename = "results/vital_rates/surv_sl.tiff",
+         dpi = 300, width = 6.3, height = 4, units = "in",
+         compression = 'lzw')
+
+
+
+# # exploratory graphs --------------------------------------------------------------------
+# 
+# # sample sizes
+# rep_df  <- sl_clim %>% 
+#               group_by( year, location ) %>% 
+#               summarise( succ  = sum(surv_t1, na.rm=T),
+#                          fail  = sum(surv_t1 == 0, na.rm=T) ) %>% 
+#               ungroup %>% 
+#               mutate( tot = succ + fail,
+#                       n_i = round(succ/(succ+fail),1),
+#                       y = 0.8) %>% 
+#               as.data.frame %>% 
+#               select(year,location, n_i, tot, y ) 
+# 
+# 
+# # Make the multi-panel plot 
+# ggplot(data  = sl_clim, 
+#        aes(x = log_area_t0, 
+#            y = surv_t1) ) +
+#   geom_point(alpha = 0.5,
+#              pch = 1) +
+#   # Fit linear Regression
+#   geom_smooth(method = "glm", 
+#               method.args = list(family = "binomial"),
+#               size = 0.5) +
+#   # split in panels
+#   facet_grid(location ~ year) +
+#   theme_bw() +
+#   ggtitle("Survival (stage_t0 <> SL, surv_t1 <> NA, area_t0 <> 0)") +
+#   geom_text(
+#     data    = rep_df,
+#     mapping = aes(x = -Inf, y = -Inf, label = n_i),
+#     hjust   = -0.1,
+#     vjust   = -1
+#   ) +
+#    geom_text(
+#     data    = rep_df,
+#     mapping = aes(x = -Inf, y = y, label = tot),
+#     hjust   = -0.1,
+#     vjust   = -1
+#   ) +
+#   ggsave(filename = "results/ml_mod_sel/surv_sl_checks.png",
+#          dpi = 300, width = 50, height = 30, units = "cm")
 
 
 
