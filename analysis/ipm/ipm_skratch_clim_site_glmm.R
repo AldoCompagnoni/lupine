@@ -23,6 +23,8 @@ lupine_df   <- read.csv( "data/lupine_all.csv") #%>%
 fruit_rac   <- read_xlsx('data/fruits_per_raceme.xlsx')
 seed_x_fr   <- read_xlsx('data/seedsperfruit.xlsx')
 germ        <- read_xlsx('data/seedbaskets.xlsx')
+cons        <- read_xlsx('data/consumption.xlsx') %>% 
+                mutate( Mean_consumption = Mean_consumption %>% as.numeric)
 sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
 clim        <- read.csv("data/prism_point_reyes_87_18.csv")
 enso        <- read.csv("data/enso_data.csv")
@@ -290,10 +292,6 @@ expect_equal(pars_mean %>%
                sum, 0)
 
 
-update_par_spec(2011,'surv_sl',"NB (2)")
-update_par_spec(2011,'surv_sl',"NB (2)")
-
-
 # update with yearly parameters
 update_par_spec <- function(year_n, vr, loc_n){
   
@@ -317,13 +315,25 @@ update_par_spec <- function(year_n, vr, loc_n){
       select(-location)
   }
   
+  get_cons<- function(cons, year_n, loc_n){
+    
+    loc_n    <- gsub(' \\([0-9]\\)','',loc_n)
+    out_cons <- cons %>% 
+                  subset(Site == loc_n & Year == year_n ) %>% 
+                  .$Mean_consumption %>% 
+                  as.numeric
+    if( is.na(out_cons) ) out_cons <- mean(cons$Mean_consumption,
+                                           na.rm=T)
+    
+    out_cons
+  }
+  
   if( vr == 'surv_sl'){
     pars_yr$surv_sl_b0 <- (pars_yr$surv_sl_b0 + get_yr(mod_sl,year_n)['(Intercept)']) %>% as.numeric
     pars_yr$surv_sl_b1 <- (pars_yr$surv_sl_b1 + get_yr(mod_sl,year_n)['log_area_t0']) %>% as.numeric
     
     pars_yr$surv_sl_b0 <- (pars_yr$surv_sl_b0 + get_loc(mod_sl,loc_n)['(Intercept)']) %>% as.numeric
     pars_yr$surv_sl_b1 <- (pars_yr$surv_sl_b1 + get_loc(mod_sl,loc_n)['log_area_t0']) %>% as.numeric
-    
   }
   
   if( vr == 'surv'){
@@ -392,9 +402,15 @@ update_par_spec <- function(year_n, vr, loc_n){
     pars_yr$fert_b1    <- (pars_yr$fert_b1 + get_loc(mod_fr,loc_n)['log_area_t0']) %>% as.numeric
   }
   
+  # update data on clipped racemes
+  pars_yr$clip       <- get_cons(cons, year_n, loc_n)
+  
   pars_yr
   
 }
+
+# test function
+update_par_spec(2008,'surv_sl',"NB (2)")$clip
 
 
 # IPM functions ------------------------------------------------------------------------------
@@ -684,8 +700,9 @@ clim_x <- seq( min(clim_mat$tmp_tm1),
                length.out = 10 )
 
 lam_s_l <- list()
+
 # cycle through the different locations
-for(li in 3:length(loc_v)){
+for(li in 1:length(loc_v)){
   lam_s_vec      <- sapply(clim_x, lam_stoch, 'all', loc_v[li])
   lam_s_l[[li]] <- data.frame( climate_anomaly = clim_x,
                                 lam_s           = lam_s_vec,
