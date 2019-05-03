@@ -2,7 +2,6 @@
 # I compare observed lambda to deterministic lambda
 # only for sites BS, NB, and DR
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 options(stringsAsFactors = F)
 library(dplyr)
 library(tidyr)
@@ -24,7 +23,7 @@ site_all <- list(bs, dr, nb) %>% bind_rows
 
 
 # create lambdas for every year
-yr_lambdas <-function(ii, germ_est, sb){
+yr_lambdas <-function(ii, germ_est, sb, dangre){
 # for(ii in 17:nrow(site_all)){
   
   # data
@@ -38,19 +37,28 @@ yr_lambdas <-function(ii, germ_est, sb){
   abline(v=1)
            
   # lupine_df   <- subset(lupine_df, log_area_t0 > 1)
-  
   fruit_rac   <- read_xlsx('data/fruits_per_raceme.xlsx')
   seed_x_fr   <- read_xlsx('data/seedsperfruit.xlsx')
   germ        <- read_xlsx('data/seedbaskets.xlsx')
-  sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
+  cons        <- read_xlsx('data/consumption.xlsx') %>% 
+                    mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
+                    select( Year, Site, Mean_consumption) %>% 
+                    # expand potential "cases"
+                    complete( Site, Year) %>% 
+                    # update name
+                    mutate( Site = toupper(Site) )
+  pred_g      <- read_xlsx('data/post predation_lupinus tidestromii.xlsx')
+  sl_size     <- data.frame( mean_sl_size = 2.725375531,
+                             sd_sl_size   = 0.914582829, 
+                             max_sl_size	= 6.082794487,
+                             min_sl_size  = -0.241564475 )
+  
   
   # vital rates format --------------------------------------------------------------
   surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
                     subset( area_t0 != 0) %>%
-                    mutate( log_area_t0 = log(area_t0),
-                            year        = year + 1 ) %>% 
                     mutate( log_area_t02 = log_area_t0^2,
-                            log_area_t03 = log_area_t0^3) 
+                            log_area_t03 = log_area_t0^3 )
   
   grow        <- lupine_df %>% 
                     subset(!(stage_t0 %in% c("DORM", "NF") ) & 
@@ -65,8 +73,7 @@ yr_lambdas <-function(ii, germ_est, sb){
   flow <- subset(lupine_df, !is.na(flow_t0) ) %>% 
             subset( area_t0 != 0) %>% 
             mutate( log_area_t0  = log(area_t0),
-                    log_area_t02 = log(area_t0)^2,
-                    year         = year + 1 )
+                    log_area_t02 = log(area_t0)^2)
   
   fert        <- subset(lupine_df, flow_t0 == 1 ) %>% 
                     subset( area_t0 != 0) %>% 
@@ -74,12 +81,21 @@ yr_lambdas <-function(ii, germ_est, sb){
                     # remove non-flowering indiv.
                     subset( !(flow_t0 %in% 0) ) %>% 
                     mutate( log_area_t0  = log(area_t0),
-                    log_area_t02 = log(area_t0)^2,
-                    year         = year + 1 ) %>% 
+                            log_area_t02 = log(area_t0)^2 ) %>% 
                     # remove zero fertility (becase fertility should not be 0)
                     # NOTE: in many cases, notab_t1 == 0, because numab_t1 == 0 also
                     subset( !(numrac_t0 %in% 0) )
   
+  abor        <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                  subset( area_t0 != 0) %>% 
+                  subset( !is.na(numrac_t0) ) %>% 
+                  # remove 
+                  subset( !(flow_t0 %in% 0) ) %>% 
+                  mutate( log_area_t02 = log(area_t0)^2) %>% 
+                  # remove zero fertility (becase fertility should not be 0)
+                  subset( !(numrac_t0 %in% 0) ) %>% 
+                  # only years indicated by Tiffany
+                  subset( year %in% c(2010, 2011, 2013:2018) )
   
   # models ---------------------------------------------------------
   
@@ -91,11 +107,9 @@ yr_lambdas <-function(ii, germ_est, sb){
   mod_s    <- mod_l[[which(mod_sel == min(mod_sel))]]
   
   # other models
-  mod_g    <- lm( log_area_t1 ~ log_area_t0, data=grow) 
+  mod_g    <- lm( log_area_t1 ~ log_area_t0, data=grow ) 
   g_lim    <- range(lupine_df$log_area_t0,na.rm=T)
   mod_fl   <- glm(flow_t0 ~ log_area_t0, data=flow, family='binomial')
-  # abort    <- glm(flow_t0 ~ log_area_t0, data=fert, family='binomial')
-  # clip     <- glm(flow_t0 ~ log_area_t0, data=fert, family='binomial')
   mod_fr   <- glm(numrac_t0 ~ log_area_t0, data=fert, family='poisson')
   # mod_fr   <- MASS::glm.nb(numrac_t1 ~ log_area_t1, data=fert )
   fr_rac   <- glm(NumFruits ~ 1, data=fruit_rac, family='poisson')        
@@ -106,7 +120,8 @@ yr_lambdas <-function(ii, germ_est, sb){
                                                       SEEDSPERFRUIT == 0, 
                                                       0.01) ),
                   family=Gamma(link = "log"))
-  germ_coef<- select(germ, g0:g2) %>% colMeans
+  germ_coef<- select(germ, g0:g2) %>% colMeans 
+          
   
   
   # models parameters -------------------------------------------------
@@ -118,14 +133,24 @@ yr_lambdas <-function(ii, germ_est, sb){
   size_sl_p <- sl_size
   fr_rac_p  <- coef(fr_rac) %>% exp
   seed_fr_p <- coef(seed_fr) %>% exp
-  germ_p    <- germ_coef
-  
-  
+  germ_p    <- germ_coef * (1 - 0.43) # post-dispersal predation
+  cons_p    <- cons %>% 
+                  subset( Year == site_all$year[ii] ) %>%
+                  subset( Site == gsub(' \\([0-9]\\)','',
+                                       site_all$site_id[ii]) ) %>% 
+                  .$Mean_consumption
+  cons_p_m  <- mean(cons$Mean_consumption, na.rm=T)
+  abor_p    <- ifelse(nrow(abor) > 0,
+                      mod_ab   <- glm(cbind(numab_t0, numrac_t0-numab_t0) ~ 1,
+                                      data=abor, 
+                                      family='binomial') %>% 
+                                    coef %>% boot::inv.logit(),
+                      0.21)
   
   # model validation plots ---------------------------------------------------
-  tiff( paste0('results/validation/vr/',
-               site_all$year[ii],'_',
-               site_all$site_id[ii],'.tiff'),
+  tiff( paste0('results/ipm/validation/vr/',
+               site_all$site_id[ii],'_',
+               site_all$year[ii],'.tiff'),
         unit="in", width=6.3, height=6.3, res=600,compression="lzw" )
   
   par( mfrow=c(2,2) )
@@ -172,7 +197,6 @@ yr_lambdas <-function(ii, germ_est, sb){
   # function to extract values
   extr_value <- function(x, field){ subset(x, type_coef == 'fixef' & ranef == field )$V1 }
   
-  
   # list of mean IPM parameters. 
   pars_mean   <- list( # adults vital rates           
                        surv_b0      = surv_p['(Intercept)'],
@@ -194,15 +218,17 @@ yr_lambdas <-function(ii, germ_est, sb){
                        fert_b0      = fert_p['(Intercept)'],
                        fert_b1      = fert_p['log_area_t0'],
                        
-                       abort        = 0.22, # hardcoded for now!
-                       clip         = 0.57, # hardcoded for now!
+                       abort        = abor_p, # hardcoded for now!
+                       clip         = ifelse(is.na(cons_p),
+                                             cons_p_m, 
+                                             cons_p),
                        
                        fruit_rac    = fr_rac_p,
                        seed_fruit   = seed_fr_p,
                        g0           = ifelse(germ_est,0.035,
-                                             germ_coef['g0']),
-                       g1           = germ_coef['g1'],
-                       g2           = germ_coef['g2'],
+                                             germ_p['g0']),
+                       g1           = germ_p['g1'],
+                       g2           = germ_p['g2'],
                        
                        recr_sz      = size_sl_p$mean_sl_size,
                        recr_sd      = size_sl_p$sd_sl_size,
@@ -211,6 +237,7 @@ yr_lambdas <-function(ii, germ_est, sb){
                        U       = g_lim[2], #9.3550582, 
                        
                        mat_siz    = 200 )
+  
   
   
   # IPM functions ------------------------------------------------------------------------------
@@ -359,8 +386,74 @@ yr_lambdas <-function(ii, germ_est, sb){
     
   }
   
+  # kernel dangremond
+  kernel_dangre <- function(pars){
+   
+    # set up IPM domains --------------------------------------------------------
+   
+    # plants
+    n   <- pars$mat_siz
+    L   <- pars$L 
+    U   <- pars$U
+    #these are the upper and lower integration limits
+    h   <- (U-L)/n                   #Bin size
+    b   <- L+c(0:n)*h                #Lower boundaries of bins 
+    y   <- 0.5*(b[1:n]+b[2:(n+1)])   #Bins' midpoints
+    #these are the boundary points (b) and mesh points (y)
+    
+    # populate kernel ------------------------------------------------------------
+    
+    # seeds mini matrix
+    s_mat     <- matrix(0,2,2)
+
+    # seeds that enter 2 yr-old seed bank
+    plant_s2   <- fx(y,pars) * pars$g2
+    
+    # seeds that enter 1 yr-old seed bank
+    plant_s1   <- fx(y,pars) * pars$g1
+
+    # seeds that go directly to seedlings germinate right away 
+    Fmat       <- (outer(y,y, fxy, pars) * pars$g0 * h) 
+  
+    # seeds that enter 2 yr-old seed bank
+    s_mat[2,1] <- 1
+
+    # recruits from the 1 yr-old seedbank
+    s1_rec     <- h * recs(y, pars) 
+    
+    # recruits from the 2 yr-old seedbank
+    s2_rec     <- h * recs(y, pars)
+    
+    # survival and growth of adult plants
+    Tmat       <- (outer(y,y,pxy,pars)*h) 
+    
+    # rotate <- function(x) t(apply(x, 2, rev))
+    # outer(y,y, fxy, pars, h) %>% t %>% rotate %>% image
+    
+    small_K    <- Tmat + Fmat
+    
+    # Assemble the kernel -------------------------------------------------------------
+    
+    # top 2 vectors
+    from_plant <- rbind( rbind( plant_s2, plant_s1),
+                         small_K )
+
+    # leftmost vectors
+    from_seed  <- rbind( s_mat,
+                         cbind(s1_rec, s2_rec) )
+
+    k_yx       <- cbind( from_seed, from_plant )
+
+    return(k_yx)
+     
+  }
+  
   if(sb){
-    ker <- kernel_sb(pars_mean)
+    if(dangre){
+      ker <- kernel_dangre(pars_mean)
+    }else{
+      ker <- kernel_sb(pars_mean)
+    }
   }else{
     ker <- kernel_s( pars_mean)
   }
@@ -394,7 +487,7 @@ yr_lambdas <-function(ii, germ_est, sb){
   pop_n   <- read.csv( "data/lupine_all.csv") %>% 
                   subset( location == site_all$site_id[ii] ) %>% 
                   subset( !is.na(stage_t0) ) %>% 
-                  subset( log_area_t0 > 1 ) %>% 
+                  # subset( log_area_t0 > 1 ) %>% 
                   count( year, location ) 
                   
   # realized lambda: observed
@@ -414,7 +507,9 @@ yr_lambdas <-function(ii, germ_est, sb){
         lam_r   = lam_r,
         lam_r_s = lam_r_s,
         germ_est= germ_est,
-        sb      = sb )
+        sb      = sb,
+        year    = site_all$year[ii],
+        site_id = site_all$site_id[ii])
 
 }
 
@@ -424,8 +519,8 @@ yr_lambdas <-function(ii, germ_est, sb){
 # T,F
 
 # store lambdas
-lam_df   <- lapply(1:nrow(site_all), yr_lambdas, 
-                   germ_est=T, sb=T) %>% bind_rows
+lam_df   <- lapply(1:23, yr_lambdas, 
+                   germ_est=F, sb=T, dangre=F) %>% bind_rows
 
 # potential output labes
 label_df <- data.frame( title = c('Seedbank model, experimental data',
@@ -459,21 +554,67 @@ ggplot(lam_df, aes(x=lam_r, y=lam_det)) +
   # annotate( 'text', label = paste0('R2= ',R2), x=0.5, y=2) +
   theme( axis.title = element_text( size=25) ) + 
   ggtitle( plot_lab$title ) +
-  ggsave( paste0('results/validation/',plot_lab$file,'.tiff'),
+  ggsave( paste0('results/ipm/validation/',plot_lab$file,'.tiff'),
           width = 6.3, height = 6.3, compression="lzw" )
 
+# compare projected vs. observed population numbers -----------
 
-# Compare a validation in the literature
-tenhumberg <- read.csv('C:/cloud/Dropbox/lupine/data/tenhumberg_validation.csv')
+lam_df %>% .$site_id %>% unique
 
-ggplot(tenhumberg, aes(lam_r, lam_s) ) +
-  geom_point( ) + 
-  xlab( expression(lambda['observed']) ) +
-  ylab( expression(lambda['s']) ) +
-  theme( axis.title = element_text( size=25) ) + 
-  geom_abline( size = 1.2 ) +
-  ggsave( 'results/validation/tenhumberg_validation.csv.tiff',
-          width = 6.3, height = 6.3, compression="lzw" )
+site_id_str <- 'NB (2)'
+ii_add      <- ifelse(site_id_str == 'NB (2)',3,2)
+
+# associate lambda with site/year
+subset(lam_df, site_id == site_id_str )
+
+pop_n   <- read.csv( "data/lupine_all.csv") %>% 
+              subset( location == site_id_str ) %>% 
+              subset( !is.na(stage_t0) ) %>% 
+              count( year, location ) 
+
+# format dataframe to plot info
+n1_df   <- subset(lam_df, site_id == site_id_str ) %>% 
+              select( lam_det, lam_r, year ) %>% 
+              left_join( pop_n ) %>% 
+              mutate( n_t1 = n * lam_det,
+                      year = year + 1 ) %>% 
+              select( year, location, n_t1, lam_det ) %>% 
+              bind_rows( rename(pop_n[ii_add,], n_t1 = n ) ) %>% 
+              arrange( year ) %>% 
+              left_join( pop_n ) %>% 
+              select( - lam_det) %>% 
+              gather( abund_type, value, n:n_t1) %>% 
+              mutate( abund_type = replace(abund_type,
+                                           abund_type == 'n_t1',
+                                           'projected') ) %>% 
+              mutate( abund_type = replace(abund_type,
+                                           abund_type == 'n',
+                                           'observed') )
+
+              
+ggplot( data=n1_df,
+        aes(x=year, y=value) ) +
+  geom_line( aes(color=abund_type),
+             lwd = 1 ) + 
+  viridis::scale_color_viridis(discrete=T) +
+  ggsave( paste0('results/ipm/validation/n_vr_nproj_',
+                 site_id_str,'.tiff'),
+          width=6.3,height=6.3,compression='lzw')
+
+
+
+
+# # Compare a validation in the literature
+# tenhumberg <- read.csv('C:/cloud/Dropbox/lupine/data/tenhumberg_validation.csv')
+# 
+# ggplot(tenhumberg, aes(lam_r, lam_s) ) +
+#   geom_point( ) + 
+#   xlab( expression(lambda['observed']) ) +
+#   ylab( expression(lambda['s']) ) +
+#   theme( axis.title = element_text( size=25) ) + 
+#   geom_abline( size = 1.2 ) +
+#   ggsave( 'results/validation/tenhumberg_validation.csv.tiff',
+#           width = 6.3, height = 6.3, compression="lzw" )
 
 # nPar = length(pars_mean);
 # sPar = numeric(nPar); # vector to hold parameter sensitivities
