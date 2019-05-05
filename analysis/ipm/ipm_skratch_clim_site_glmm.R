@@ -24,7 +24,13 @@ fruit_rac   <- read_xlsx('data/fruits_per_raceme.xlsx')
 seed_x_fr   <- read_xlsx('data/seedsperfruit.xlsx')
 germ        <- read_xlsx('data/seedbaskets.xlsx')
 cons        <- read_xlsx('data/consumption.xlsx') %>% 
-                mutate( Mean_consumption = Mean_consumption %>% as.numeric)
+                mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
+                select( Year, Site, Mean_consumption) %>% 
+                # expand potential "cases"
+                complete( Site, Year) %>% 
+                # update name
+                mutate( Site = toupper(Site) )
+pred_g      <- read_xlsx('data/post predation_lupinus tidestromii.xlsx')
 sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
 clim        <- read.csv("data/prism_point_reyes_87_18.csv")
 enso        <- read.csv("data/enso_data.csv")
@@ -35,7 +41,7 @@ m_obs     <- 5
 m_back    <- 36
 
 # calculate yearly anomalies
-year_anom <- function(x, var ){
+year_anom <- function(x, var){
   
   # set names of climate variables
   clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
@@ -157,6 +163,17 @@ fert        <- subset(lupine_df, flow_t0 == 1 ) %>%
                   subset( !(numrac_t0 %in% 0) ) %>% 
                   left_join( clim_mat ) 
 
+abor        <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                  subset( area_t0 != 0) %>% 
+                  subset( !is.na(numrac_t0) ) %>% 
+                  # remove 
+                  subset( !(flow_t0 %in% 0) ) %>% 
+                  mutate( log_area_t02 = log(area_t0)^2) %>% 
+                  # remove zero fertility (becase fertility should not be 0)
+                  subset( !(numrac_t0 %in% 0) ) %>% 
+                  # only years indicated by Tiffany
+                  subset( year %in% c(2010, 2011, 2013:2018) ) %>% 
+
 
 # models ---------------------------------------------------------
 mod_sl   <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
@@ -182,7 +199,9 @@ mod_fr   <- glmer(numrac_t0 ~ log_area_t0 + tmp_tm1 +
                   (1 | year) + (0 + log_area_t0 | year) + 
                   (1 | location) + (0 + log_area_t0 | location), 
                   data=fert, family='poisson')
-
+mod_ab    <- glmer( cbind(numab_t0, numrac_t0-numab_t0) ~ 
+                    (1 | year) + (1 | location),
+                    data=abor, family='binomial')
 # mod_fr   <- MASS::glm.nb(numrac_t0 ~ log_area_t0 , data=fert )
 fr_rac   <- glm(NumFruits ~ 1, data=fruit_rac, family='poisson')        
 seed_fr  <- glm(SEEDSPERFRUIT ~ 1, 
@@ -193,19 +212,6 @@ seed_fr  <- glm(SEEDSPERFRUIT ~ 1,
                                                     0.01) ),
                 family=Gamma(link = "log"))
 germ_coef<- select(germ, g0:g2) %>% colMeans
-
-
-# library(ggplot2)
-# plot_binned_prop(seedl, 10, log_area_t0, surv_t1)
-# ggplot(data  = seedl, 
-#        aes(x = log_area_t0, 
-#            y = surv_t1) ) +
-#   geom_point(alpha = 0.5,
-#              pch = 1) +
-#   # Fit linear Regression
-#   geom_smooth(method = "glm", 
-#               method.args = list(family = "binomial"),
-#               size = 0.5)
 
 
 # vital rate models 
@@ -220,15 +226,44 @@ fert_p    <- fixef(mod_fr)
 size_sl_p <- sl_size
 fr_rac_p  <- coef(fr_rac) %>% exp
 seed_fr_p <- coef(seed_fr) %>% exp
-germ_p    <- germ_coef
+germ_p    <- germ_coef * (1 - 0.43)
+# abortion
+# abor_p    <- list( # set up "grid" of year/location combinations
+#                    expand.grid( year = paste0(c(2005:2018)),
+#                                 site = rownames(coef(mod_ab)$location),
+#                                 stringsAsFactors = F ),
+#                    # set up year specific coefficients
+#                    data.frame(  year   = rownames(coef(mod_ab)$year),
+#                                 year_c = coef(mod_ab)$year[,1] ),
+#                    # set up site specific coefficients
+#                    data.frame(  site   = rownames(coef(mod_ab)$location),
+#                                 site_c = coef(mod_ab)$location[,1] ) ) %>% 
+#               Reduce( function(...) full_join(...), . ) %>% 
+#               # calculate proportion of aborted racemes
+#               mutate( tot_p  = boot::inv.logit(year_c) + boot::inv.logit(site_c) ) %>% 
+#               rename( location = site )
+abor_p    <-  abor %>% 
+                mutate( ab_p = numab_t0 / numrac_t0 ) %>%
+                group_by( year, location ) %>% 
+                summarise( ab_p_m = mean(ab_p,na.rm=T) ) %>% 
+                ungroup  
 
-
+ggplot(abor_p) +
+geom_line( aes(x     = year, 
+               y     = ab_p_m, 
+               color = location),
+           size=1.5) +
+viridis::scale_color_viridis(discrete=T) +
+# geom_point( data = subset(abor_p, !is.na(tot_p) ),
+#             aes(x=year, 
+#                 y=tot_p,
+#                 shape=location) ) 
+  
 
 # IPM parameters -------------------------------------------------------------
 
 # function to extract values
 extr_value <- function(x, field){ subset(x, type_coef == 'fixef' & ranef == field )$V1 }
-
 
 # list of mean IPM parameters. 
 pars_mean   <- list( # seedlings vital rates
@@ -266,9 +301,9 @@ pars_mean   <- list( # seedlings vital rates
                      
                      fruit_rac    = fr_rac_p,
                      seed_fruit   = seed_fr_p,
-                     g0           = 0.035,#germ_coef['g0'],#0.035,#
-                     g1           = germ_coef['g1'],
-                     g2           = germ_coef['g2'],
+                     g0           = germ_p['g0'],
+                     g1           = germ_p['g1'],
+                     g2           = germ_p['g2'],
                      
                      recr_sz      = size_sl_p$mean_sl_size,
                      recr_sd      = size_sl_p$sd_sl_size,
@@ -298,6 +333,20 @@ update_par_spec <- function(year_n, vr, loc_n){
   pars_yr <- pars_mean
   
   get_yr <- function(mod_obj,year_n){
+  
+    # # models used in year
+    # yr_mod <- attributes(mod_obj) %>%
+    #             .$flist %>%
+    #             .$year %>%
+    #             as.character %>%
+    #             unique
+    # 
+    # if( all(!paste0(2006:2008) %in% yr_mod) ){
+    #   year_n <- replace( year_n, year_n== 2006, 2009)
+    #   year_n <- replace( year_n, year_n== 2007, 2010)
+    #   year_n <- replace( year_n, year_n== 2008, 2011)
+    # }
+    
     ranef(mod_obj)$year %>% 
       tibble::add_column(.,
                          .before=1,
@@ -315,17 +364,28 @@ update_par_spec <- function(year_n, vr, loc_n){
       select(-location)
   }
   
-  get_cons<- function(cons, year_n, loc_n){
+  # get info on raceme "loss"
+  get_rac <- function(cons, year_n, loc_n){
     
-    loc_n    <- gsub(' \\([0-9]\\)','',loc_n)
+    # raceme consumption
+    locc     <- gsub(' \\([0-9]\\)','',loc_n)
     out_cons <- cons %>% 
-                  subset(Site == loc_n & Year == year_n ) %>% 
+                  subset(Site == locc & Year == year_n ) %>% 
                   .$Mean_consumption %>% 
                   as.numeric
     if( is.na(out_cons) ) out_cons <- mean(cons$Mean_consumption,
                                            na.rm=T)
     
-    out_cons
+    # raceme abortion
+    out_abor <- abor_p %>% 
+                  subset( site == loc_n & year == year_n ) %>% 
+                  .$abor_p
+    
+    if( is.na(out_abor) ) out_abor <- mean(abor_p$abor_p,na.rm=T)
+    
+    data.frame( clip = out_cons,
+                abor = out_abor)
+    
   }
   
   if( vr == 'surv_sl'){
@@ -403,15 +463,17 @@ update_par_spec <- function(year_n, vr, loc_n){
   }
   
   # update data on clipped racemes
-  pars_yr$clip       <- get_cons(cons, year_n, loc_n)
+  pars_yr$clip       <- get_rac(cons, year_n, loc_n)$clip
+  pars_yr$abort      <- get_rac(cons, year_n, loc_n)$abor
   
   pars_yr
   
 }
 
 # test function
-update_par_spec(2008,'surv_sl',"NB (2)")$clip
-
+update_par_spec(2006,'all',"BS (7)")$surv_sl_b0
+update_par_spec(2010,'all',"POP9 (9)")$abor
+update_par_spec(2010,'all',"POP9 (9)")$g0
 
 # IPM functions ------------------------------------------------------------------------------
 
@@ -636,7 +698,6 @@ ker <- kernel(0,pars_mean)
 Re(eigen(ker)$value[1])
 
 
-
 # stochastic simulations -------------------------------------
 
 
@@ -651,7 +712,7 @@ ker_siz   <- (pars_mean$mat_siz*2)+2
 
 
 # calculate stochastic lambda for each climate anomaly
-lam_stoch <- function(tmp_anom,vr,loc){
+lam_stoch <- function(tmp_anom, vr, loc){
 
   # store kernels
   ker_l     <- list()
@@ -660,7 +721,7 @@ lam_stoch <- function(tmp_anom,vr,loc){
   }
 
   # placeholders
-  n0        <- rep(1/ker_siz,ker_siz)
+  n0        <- rep(100/ker_siz,ker_siz)
   r_v       <- rep(0,it)
 
   # stochastic simulations
@@ -685,13 +746,12 @@ lam_stoch <- function(tmp_anom,vr,loc){
 }
 
 # test stochasticity
-lamS_noClim <- lam_stoch(0,'all', loc_v[3])
+lamS_noClim <- lam_stoch(0,'all', loc_v[6])
 lamS_surv_sl<- lam_stoch(0,'surv_sl')
 lamS_surv   <- lam_stoch(0,'surv')
 lamS_grow   <- lam_stoch(0,'grow')
 lamS_flow   <- lam_stoch(0,'flow')
 lamS_fert   <- lam_stoch(0,'fert')
-
 
 
 # set up climate covariates
@@ -702,15 +762,15 @@ clim_x <- seq( min(clim_mat$tmp_tm1),
 lam_s_l <- list()
 
 # cycle through the different locations
-for(li in 1:length(loc_v)){
+for(li in 1:6){ #length(loc_v)
   lam_s_vec      <- sapply(clim_x, lam_stoch, 'all', loc_v[li])
-  lam_s_l[[li]] <- data.frame( climate_anomaly = clim_x,
-                                lam_s           = lam_s_vec,
-                                location        = loc_v[li],
+  lam_s_l[[li]] <- data.frame( climate_anomaly   = clim_x,
+                                lam_s            = lam_s_vec,
+                                location         = loc_v[li],
                                 stringsAsFactors = F)
 }
 
-
+#4,5,7
 lam_s_df <- bind_rows( lam_s_l ) %>% 
               mutate( location = as.factor(location) )
 
