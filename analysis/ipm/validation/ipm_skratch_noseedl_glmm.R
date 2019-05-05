@@ -1,6 +1,5 @@
 # Hyper-simplified IPM for debugging
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 options(stringsAsFactors = F)
 library(dplyr)
 library(tidyr)
@@ -13,6 +12,7 @@ source('analysis/vital_rates/plot_binned_prop.R')
 # "AL (1)" is good
 # "ATT (8)" is not
 
+
 year_trans  <- c(2009:2017)
 all_indiv_sample <- c("BS (7)", 'DR (3)', 'NB (2)')
 site_id     <- 'BS (7)'
@@ -21,16 +21,19 @@ site_id     <- 'BS (7)'
 lupine_df   <- read.csv( "data/lupine_all.csv") %>% 
                 # analyze a specific site only
                 subset( location == site_id)
-                
 hist(lupine_df$log_area_t0, freq=F)
 abline(v=1)
          
 lupine_df   <- subset(lupine_df, log_area_t0 > 1)
-
 fruit_rac   <- read_xlsx('data/fruits_per_raceme.xlsx')
 seed_x_fr   <- read_xlsx('data/seedsperfruit.xlsx')
 germ        <- read_xlsx('data/seedbaskets.xlsx')
-sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
+# sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
+sl_size     <- data.frame( mean_sl_size = 2.725375531,
+                           sd_sl_size   = 0.914582829, 
+                           max_sl_size	 = 6.082794487,
+                           min_sl_size  = -0.241564475 )
+			
 
 # vital rates format --------------------------------------------------------------
 surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
@@ -126,6 +129,7 @@ x_seq    <- seq(min(grow$log_area_t0),
                 max(grow$log_area_t0),by=0.1)
 y_pred   <- fixef(mod_g)[1] + fixef(mod_g)[2]*x_seq
 lines(x_seq, y_pred, lwd=2, col='red')
+abline(0,1,lty=2)
 
 # flowering
 plot_binned_prop(flow, 10, log_area_t0, flow_t0)
