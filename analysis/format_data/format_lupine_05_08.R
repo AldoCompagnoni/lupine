@@ -1,7 +1,5 @@
-setwd("C:/cloud/Dropbox/lupine")
 library(dplyr)
 library(tidyr)
-
 
 # 2005-2008 data
 pop1    <- read.csv("data/pre_2008/Pop1_2005-2008.csv", stringsAsFactors = F) %>% 
@@ -37,7 +35,7 @@ AIC(m_lin, m_quad)
 mod    <- m_quad
 
 
-# Population 1 -----------------------------------------------------------------------------
+# Population 1 AL (1) ----------------------------------------------------------------------
 
 # size (branches)
 size  <- pop1 %>%
@@ -253,6 +251,7 @@ plot(area_t1 ~ log(area_t0), data = trans_pop1)
 # AIC(mod_po,mod_po_l,mod_nb,mod_nb_l)
 # subset(trans_pop1, year != 2007)$size_t0 %>% hist
 
+
 # Population 8 -----------------------------------------------------------------------------
 
 # stage
@@ -317,6 +316,7 @@ demo_pop8   <- Reduce( function(...) full_join(...), list( stage8_long,
                                                            size8_long,
                                                            fecu8_long,
                                                            clip_long8) ) 
+
 # demography at time t0
 demo8_t0    <- demo_pop8 %>%
                 setNames( c(names(.)[1:6],
