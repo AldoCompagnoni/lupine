@@ -1,6 +1,5 @@
 # IPM from data
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 source("analysis/format_data/format_functions.R")
 source('analysis/vital_rates/plot_binned_prop.R')
 options(stringsAsFactors = F)
@@ -56,10 +55,6 @@ tmp_mat <- subset(clim, clim_var == 'tmean') %>%
               prism_clim_form('tmean', years, m_back, m_obs) %>% 
               year_anom('tmp')
   
-subset(clim, clim_var == 'tmean') %>%  
-  group_by(year) %>% 
-  summarise(mean_t = mean(clim_value) ) %>% 
-  as.data.frame
 
 enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
@@ -78,7 +73,6 @@ surv_all    <- subset(lupine_df, !is.na(surv_t1) ) %>%
                   mutate( log_area_t02 = log_area_t0^2,
                           log_area_t03 = log_area_t0^3) %>% 
                   left_join( clim_mat ) 
-
 
 surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
                   subset( stage_t0 != 'SL' ) %>%
@@ -99,13 +93,14 @@ seedl       <- subset(lupine_df, !is.na(surv_t1) ) %>%
                           log_area_t03= log_area_t0^3 ) %>% 
                   left_join( clim_mat ) 
 
+
 # write suspect seedlings for Eleanor
 seedl %>% 
   subset( log_area_t0 > 4 ) %>% 
   mutate( year = year - 1 ) %>% 
   select(location,year,newid) %>% 
   unique %>% 
-  write.csv('results/explorative_graphs/suspect_seedlings.csv',
+  write.csv('results/suspect_seedlings.csv',
             row.names=F)
 
 
@@ -222,8 +217,7 @@ germ_p    <- germ_coef
 tiff('C:/cloud/Dropbox/lupine/results/explorative_graphs/glmm_vr_year_eff.tiff',
      unit='in',res=300,height=6.3,width=6.3,compression='lzw')
 
-par( mfrow=c(2,2), mar=c(3,3,0.5,0.1),
-     mgp=c(1.7,0.8,0) )
+par( mfrow=c(2,2), mar=c(3,3,0.5,0.1), mgp=c(1.7,0.8,0) )
 
 # seedling surv
 plot_binned_prop(seedl, 10, log_area_t0, surv_t1)
