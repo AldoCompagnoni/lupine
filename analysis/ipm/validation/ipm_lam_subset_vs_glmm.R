@@ -825,6 +825,7 @@ lam_df <- lam_df %>%
 
 # expand
 
+# put all sites in one plot, plots show type of lambdas
 ggplot(lam_df) +
   geom_line( aes(x=year, 
                  y=lambda,
@@ -840,7 +841,7 @@ ggplot(lam_df) +
   ggsave('results/ipm/validation/subset_vs_glmm/glmm_vs_subset.tiff',
          width=6.3, height=3, compression='lzw')
 
-# 
+# compare "subset" and "glmm" lambda site by site 
 ggplot(lam_df) +
   geom_line( aes(x=year, 
                  y=lambda,
@@ -855,3 +856,11 @@ ggplot(lam_df) +
   facet_grid( site_id ~ 1 ) +
   ggsave('results/ipm/validation/subset_vs_glmm/glmm_vs_subset_bysite.tiff',
          width=6.3, height=9, compression='lzw')
+
+
+lam_df %>% 
+  spread( year, lambda ) %>% 
+  arrange( type, site_id ) %>% 
+  write.csv('results/ipm/validation/subset_vs_glmm/lambda_glmm_vs_subset.csv',
+            row.names=F)
+  
