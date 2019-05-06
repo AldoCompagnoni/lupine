@@ -178,7 +178,8 @@ transition <- function(x, start, finish, tr_year){
   # starting abundances
   init_n <- x %>% 
               subset( year == tr_year ) %>% 
-              subset( stage_t0 == start) %>% 
+              subset( stage_t0 == start &
+                      !is.na(stage_t1) ) %>% 
               nrow
   
   # ending abundances
@@ -198,7 +199,7 @@ transition(trans_pop1, "SL","Rep", 2006)
 transition(trans_pop1, "Non","Non", 2006)
 transition(trans_pop1, "Non","Rep", 2006)
 transition(trans_pop1, "Rep","Non", 2006)
-transition(trans_pop1, "Rep","Rep", 2006)
+transition(trans_pop1, "Rep","Rep", 2005)
 
 trans_pop1$stage_t0 %>% unique %>% sort
 trans_pop1$stage_t1 %>% unique %>% sort
