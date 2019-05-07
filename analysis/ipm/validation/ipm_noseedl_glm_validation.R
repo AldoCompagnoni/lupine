@@ -10,21 +10,87 @@ library(readxl)
 library(testthat)
 library(bbmle)
 source('analysis/vital_rates/plot_binned_prop.R')
-# "AL (1)"   "ATT (8)"  "BR (6)"   "BS (7)"   "DR (3)"   "NB (2)"   "POP9 (9)"
 
+# format data frames ------------------------------------------------
+
+# read lupine data
+lupine_df <- read.csv( "data/lupine_all.csv")
+
+# information on sites
+site_df   <- select(lupine_df,location) %>% 
+                unique %>% 
+                mutate( Site = gsub(' \\([0-9]\\)','', location) %>% 
+                                  toupper ) 
+
+# set up year/site information 
 bs <- data.frame( site_id = 'BS (7)',
                   year    = c(2009:2017) )
 dr <- data.frame( site_id = 'DR (3)',
                   year    = c(2009:2014,2016:2017) )
 nb <- data.frame( site_id = 'NB (2)',
                   year    = c(2010,2012:2016) )
-
 site_all <- list(bs, dr, nb) %>% bind_rows 
 
 
+# consumption 
+cons_df    <- read_xlsx('data/consumption.xlsx') %>% 
+                mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
+                select( Year, Site, Mean_consumption) %>% 
+                # expand potential "cases"
+                complete( Site, Year) %>% 
+                # update name
+                mutate( Site = toupper(Site) ) %>% 
+                mutate( Mean_consumption = replace(Mean_consumption,
+                                                   is.na(Mean_consumption),
+                                                   mean(Mean_consumption,na.rm=T) 
+                                                   ) ) %>% 
+                left_join( site_df ) %>% 
+                # remove NA locations
+                subset( !is.na(location) ) %>% 
+                # remove annoying code
+                select( -Site ) %>% 
+                rename( year = Year,
+                        cons = Mean_consumption )
+
+# abortion 
+abor_df  <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                subset( !is.na(numrac_t0) ) %>% 
+                # remove non-flowering individuals
+                subset( !(flow_t0 %in% 0) ) %>% 
+                # remove zero fertility (becase fertility should not be 0)
+                subset( !(numrac_t0 %in% 0) ) %>% 
+                # only years indicated by Tiffany
+                subset( year %in% c(2010, 2011, 2013:2017) ) %>% 
+                # calculate abortion rates
+                mutate( ab_r      = numab_t0 / numrac_t0 ) %>% 
+                group_by( location, year ) %>% 
+                summarise( ab_r_m = mean(ab_r, na.rm=T) ) %>% 
+                ungroup %>% 
+                right_join( rename(site_all, 
+                                   location = site_id) ) %>% 
+                mutate( ab_r_m = replace(ab_r_m,
+                                         is.na(ab_r_m),
+                                         mean(ab_r_m, 
+                                              na.rm=T)) )
+
+# germination 
+germ        <- read_xlsx('data/seedbaskets.xlsx') %>% 
+                 select(g0:g2) %>% 
+                 colMeans
+
+# site-spec germination rates
+germ_df <- site_all %>% 
+             rename( location = site_id ) %>% 
+             select( location ) %>% 
+             unique %>% 
+             mutate( germ_obs = c(0.0156,0.0157,0.026) ) %>% 
+             # post-dispersal predation
+             mutate( post_d_p = (germ['g0'] - germ_obs) / germ['g0'] )
+
+
+
 # create lambdas for every year
-yr_lambdas <-function(ii, germ_est, sb, dangre){
-# for(ii in 17:nrow(site_all)){
+yr_lambdas <-function(ii){ #germ_est, sb, dangre
   
   # data
   lupine_df   <- read.csv( "data/lupine_all.csv") %>% 
@@ -39,14 +105,6 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
   # lupine_df   <- subset(lupine_df, log_area_t0 > 1)
   fruit_rac   <- read_xlsx('data/fruits_per_raceme.xlsx')
   seed_x_fr   <- read_xlsx('data/seedsperfruit.xlsx')
-  germ        <- read_xlsx('data/seedbaskets.xlsx')
-  cons        <- read_xlsx('data/consumption.xlsx') %>% 
-                    mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
-                    select( Year, Site, Mean_consumption) %>% 
-                    # expand potential "cases"
-                    complete( Site, Year) %>% 
-                    # update name
-                    mutate( Site = toupper(Site) )
   pred_g      <- read_xlsx('data/post predation_lupinus tidestromii.xlsx')
   sl_size     <- data.frame( mean_sl_size = 2.725375531,
                              sd_sl_size   = 0.914582829, 
@@ -86,22 +144,12 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
                     # NOTE: in many cases, notab_t1 == 0, because numab_t1 == 0 also
                     subset( !(numrac_t0 %in% 0) )
   
-  abor        <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
-                  subset( area_t0 != 0) %>% 
-                  subset( !is.na(numrac_t0) ) %>% 
-                  # remove 
-                  subset( !(flow_t0 %in% 0) ) %>% 
-                  mutate( log_area_t02 = log(area_t0)^2) %>% 
-                  # remove zero fertility (becase fertility should not be 0)
-                  subset( !(numrac_t0 %in% 0) ) %>% 
-                  # only years indicated by Tiffany
-                  subset( year %in% c(2010, 2011, 2013:2018) )
-  
   # models ---------------------------------------------------------
   
   # survival: quadratic predictor or not?
-  mod_s1   <- glm(surv_t1 ~ log_area_t0 + log_area_t02, data=surv, family='binomial')
-  mod_s2   <- glm(surv_t1 ~ log_area_t0, data=surv, family='binomial')
+  mod_s1   <- glm(surv_t1 ~ log_area_t0, data=surv, family='binomial')
+  mod_s2   <- glm(surv_t1 ~ log_area_t0 + log_area_t02, data=surv, family='binomial')
+  # mod_s3   <- glm(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03, data=surv, family='binomial')
   mod_l    <- list(mod_s1, mod_s2)
   mod_sel  <- c(AIC(mod_s1),AIC(mod_s2)) 
   mod_s    <- mod_l[[which(mod_sel == min(mod_sel))]]
@@ -120,9 +168,6 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
                                                       SEEDSPERFRUIT == 0, 
                                                       0.01) ),
                   family=Gamma(link = "log"))
-  germ_coef<- select(germ, g0:g2) %>% colMeans 
-          
-  
   
   # models parameters -------------------------------------------------
   surv_p    <- coef(mod_s)
@@ -133,27 +178,23 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
   size_sl_p <- sl_size
   fr_rac_p  <- coef(fr_rac) %>% exp
   seed_fr_p <- coef(seed_fr) %>% exp
-  germ_p    <- germ_coef * (1 - 0.43) # post-dispersal predation
-  cons_p    <- cons %>% 
-                  subset( Year == site_all$year[ii] ) %>%
-                  subset( Site == gsub(' \\([0-9]\\)','',
-                                       site_all$site_id[ii]) ) %>% 
-                  .$Mean_consumption
-  cons_p_m  <- mean(cons$Mean_consumption, na.rm=T)
-  abor_p    <- ifelse(nrow(abor) > 0,
-                      mod_ab   <- glm(cbind(numab_t0, numrac_t0-numab_t0) ~ 1,
-                                      data=abor, 
-                                      family='binomial') %>% 
-                                    coef %>% boot::inv.logit(),
-                      0.21)
-  
+  cons_p    <- cons_df %>% 
+                  subset( year     == site_all$year[ii] ) %>%
+                  subset( location == site_all$site_id[ii] ) %>% 
+                  .$cons
+  abor_p    <- abor_df %>% 
+                  subset( year     == site_all$year[ii] ) %>%
+                  subset( location == site_all$site_id[ii] )
+  germ_p    <- germ * (1 - (subset(germ_df, location == site_all$site_id[ii] ) %>% 
+                            .$post_d_p))
+                  
   # model validation plots ---------------------------------------------------
   tiff( paste0('results/ipm/validation/vr/',
                site_all$site_id[ii],'_',
                site_all$year[ii],'.tiff'),
         unit="in", width=6.3, height=6.3, res=600,compression="lzw" )
   
-  par( mfrow=c(2,2) )
+  par( mfrow=c(2,2), mar=c(3,3,0.1,0.1), mgp=c(1.7,0.5,0) )
   # survival
   plot_binned_prop(surv, 10, log_area_t0, surv_t1)
   coef_s   <- coef(mod_s)
@@ -161,11 +202,16 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
                       is.na,
                      0,
                      coef_s['log_area_t02'])
+  coef_s[4]<- ifelse(coef_s['log_area_t03'] %>% 
+                      is.na,
+                     0,
+                     coef_s['log_area_t03'])
   x_seq    <- seq(min(surv$log_area_t0),
                   max(surv$log_area_t0),by=0.1)
   y_pred   <- boot::inv.logit( coef_s[1] + 
                                coef_s[2]*x_seq + 
-                               coef_s[3]*(x_seq^2) )
+                               coef_s[3]*(x_seq^2) +
+                               coef_s[4]*(x_seq^3) )
   lines(x_seq, y_pred)
   
   # growth
@@ -218,15 +264,12 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
                        fert_b0      = fert_p['(Intercept)'],
                        fert_b1      = fert_p['log_area_t0'],
                        
-                       abort        = abor_p, # hardcoded for now!
-                       clip         = ifelse(is.na(cons_p),
-                                             cons_p_m, 
-                                             cons_p),
+                       abort        = abor_p$ab_r_m, 
+                       clip         = cons_p,
                        
                        fruit_rac    = fr_rac_p,
                        seed_fruit   = seed_fr_p,
-                       g0           = ifelse(germ_est,0.035,
-                                             germ_p['g0']),
+                       g0           = germ_p['g0'],
                        g1           = germ_p['g1'],
                        g2           = germ_p['g2'],
                        
@@ -274,7 +317,7 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
                 exp(       pars$fert_b0 + pars$fert_b1*x )
                 
     # viable racs
-    viab_rac <- tot_rac * (1 - (pars$abort + pars$clip) )
+    viab_rac <- tot_rac * (1 - pars$abort) * (1- pars$clip)
     # viable seeds
     viab_sd  <- viab_rac * pars$fruit_rac * pars$seed_fruit
     viab_sd
@@ -290,101 +333,102 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
     fx(x,pars) * recs(y,pars) 
   }
   
-  # IPM kernel/matrix ------------------------------------------------------------
-  kernel_sb <- function(pars){
-   
-    # set up IPM domains --------------------------------------------------------
-   
-    # plants
-    n   <- pars$mat_siz
-    L   <- pars$L 
-    U   <- pars$U
-    #these are the upper and lower integration limits
-    h   <- (U-L)/n                   #Bin size
-    b   <- L+c(0:n)*h                #Lower boundaries of bins 
-    y   <- 0.5*(b[1:n]+b[2:(n+1)])   #Bins' midpoints
-    #these are the boundary points (b) and mesh points (y)
-    
-    # populate kernel ------------------------------------------------------------
-    
-    # seeds mini matrix
-    s_mat     <- matrix(0,2,2)
-
-    # seeds that enter 1 yr-old seed bank
-    plant_s1  <- fx(y,pars) * (1 - pars$g0)
-
-    # no seeds go directly to 2 yr-old seed bank!
-    plant_s2  <- numeric(n)
-
-    # seeds that go directly to seedlings germinate right away 
-    Fmat       <- (outer(y,y, fxy, pars) * pars$g0 * h) 
-  
-    # recruits from the 1 yr-old seedbank
-    s1_rec     <- h * recs(y, pars) * pars$g1
-
-    # seeds that enter 2 yr-old seed bank
-    s_mat[2,1] <- (1 - pars$g1)
-
-    # recruits from the 2 yr-old seedbank
-    s2_rec     <- h * recs(y, pars) * pars$g2
-    
-    # survival and growth of adult plants
-    Tmat       <- (outer(y,y,pxy,pars)*h) 
-    
-    # rotate <- function(x) t(apply(x, 2, rev))
-    # outer(y,y, fxy, pars, h) %>% t %>% rotate %>% image
-    
-    small_K    <- Tmat + Fmat
-    
-    # Assemble the kernel -------------------------------------------------------------
-    
-    # top 2 vectors
-    from_plant <- rbind( rbind( plant_s1, plant_s2),
-                         small_K )
-
-    # leftmost vectors
-    from_seed  <- rbind( s_mat,
-                         cbind(s1_rec, s2_rec) )
-
-    k_yx       <- cbind( from_seed, from_plant )
-
-    return(k_yx)
-     
-    # return(small_K)
-    
-  }
-  
-  # simple IPM kernel/matrix  ------------------------------------------------------------
-  kernel_s <- function(pars){
-   
-    # set up IPM domains --------------------------------------------------------
-   
-    # plants
-    n   <- pars$mat_siz
-    L   <- pars$L 
-    U   <- pars$U
-    #these are the upper and lower integration limits
-    h   <- (U-L)/n                   #Bin size
-    b   <- L+c(0:n)*h                #Lower boundaries of bins 
-    y   <- 0.5*(b[1:n]+b[2:(n+1)])   #Bins' midpoints
-    #these are the boundary points (b) and mesh points (y)
-    
-    # populate kernel ------------------------------------------------------------
-    
-    # seeds that go directly to seedlings germinate right away 
-    Fmat       <- (outer(y,y, fxy, pars) * pars$g0 * h) 
-  
-    # survival and growth of adult plants
-    Tmat       <- (outer(y,y,pxy,pars)*h) 
-    
-    # rotate <- function(x) t(apply(x, 2, rev))
-    # outer(y,y, fxy, pars, h) %>% t %>% rotate %>% image
-    
-    small_K    <- Tmat + Fmat
-    
-    return(small_K)
-    
-  }
+  # # IPM kernel/matrix ------------------------------------------------------------
+  # kernel_sb <- function(pars){
+  #  
+  #   # set up IPM domains --------------------------------------------------------
+  #  
+  #   # plants
+  #   n   <- pars$mat_siz
+  #   L   <- pars$L 
+  #   U   <- pars$U
+  #   #these are the upper and lower integration limits
+  #   h   <- (U-L)/n                   #Bin size
+  #   b   <- L+c(0:n)*h                #Lower boundaries of bins 
+  #   y   <- 0.5*(b[1:n]+b[2:(n+1)])   #Bins' midpoints
+  #   #these are the boundary points (b) and mesh points (y)
+  #   
+  #   # populate kernel ------------------------------------------------------------
+  #   
+  #   # seeds mini matrix
+  #   s_mat     <- matrix(0,2,2)
+  # 
+  #   # seeds that enter 1 yr-old seed bank
+  #   plant_s1  <- fx(y,pars) * (1 - pars$g0)
+  # 
+  #   # no seeds go directly to 2 yr-old seed bank!
+  #   plant_s2  <- numeric(n)
+  # 
+  #   # seeds that go directly to seedlings germinate right away 
+  #   Fmat       <- (outer(y,y, fxy, pars) * pars$g0 * h) 
+  # 
+  #   # recruits from the 1 yr-old seedbank
+  #   s1_rec     <- h * recs(y, pars) * pars$g1
+  # 
+  #   # seeds that enter 2 yr-old seed bank
+  #   s_mat[2,1] <- (1 - pars$g1)
+  # 
+  #   # recruits from the 2 yr-old seedbank
+  #   s2_rec     <- h * recs(y, pars) * pars$g2
+  #   
+  #   # survival and growth of adult plants
+  #   Tmat       <- (outer(y,y,pxy,pars)*h) 
+  #   
+  #   # rotate <- function(x) t(apply(x, 2, rev))
+  #   # outer(y,y, fxy, pars, h) %>% t %>% rotate %>% image
+  #   
+  #   small_K    <- Tmat + Fmat
+  #   
+  #   # Assemble the kernel -------------------------------------------------------------
+  #   
+  #   # top 2 vectors
+  #   from_plant <- rbind( rbind( plant_s1, plant_s2),
+  #                        small_K )
+  # 
+  #   # leftmost vectors
+  #   from_seed  <- rbind( s_mat,
+  #                        cbind(s1_rec, s2_rec) )
+  # 
+  #   k_yx       <- cbind( from_seed, from_plant )
+  # 
+  #   return(k_yx)
+  #    
+  #   # return(small_K)
+  #   
+  # }
+  # 
+  # # simple IPM kernel/matrix  ------------------------------------------------------------
+  # kernel_s <- function(pars){
+  #  
+  #   # set up IPM domains --------------------------------------------------------
+  #  
+  #   # plants
+  #   n   <- pars$mat_siz
+  #   L   <- pars$L 
+  #   U   <- pars$U
+  #   #these are the upper and lower integration limits
+  #   h   <- (U-L)/n                   #Bin size
+  #   b   <- L+c(0:n)*h                #Lower boundaries of bins 
+  #   y   <- 0.5*(b[1:n]+b[2:(n+1)])   #Bins' midpoints
+  #   #these are the boundary points (b) and mesh points (y)
+  #   
+  #   # populate kernel ------------------------------------------------------------
+  #   
+  #   # seeds that go directly to seedlings germinate right away 
+  #   Fmat       <- (outer(y,y, fxy, pars) * pars$g0 * h) 
+  # 
+  #   # survival and growth of adult plants
+  #   Tmat       <- (outer(y,y,pxy,pars)*h) 
+  #   
+  #   # rotate <- function(x) t(apply(x, 2, rev))
+  #   # outer(y,y, fxy, pars, h) %>% t %>% rotate %>% image
+  #   
+  #   small_K    <- Tmat + Fmat
+  #   
+  #   return(small_K)
+  #   
+  # }
+  # 
   
   # kernel dangremond
   kernel_dangre <- function(pars){
@@ -448,15 +492,17 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
      
   }
   
-  if(sb){
-    if(dangre){
-      ker <- kernel_dangre(pars_mean)
-    }else{
-      ker <- kernel_sb(pars_mean)
-    }
-  }else{
-    ker <- kernel_s( pars_mean)
-  }
+  # if(sb){
+  #   if(dangre){
+  #     ker <- kernel_dangre(pars_mean)
+  #   }else{
+  #     ker <- kernel_sb(pars_mean)
+  #   }
+  # }else{
+  #   ker <- kernel_s( pars_mean)
+  # }
+  
+  ker <- kernel_dangre(pars_mean)
   
   Re(eigen(ker)$value[1])
   
@@ -506,8 +552,8 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
   list( lam_det = Re(eigen(ker)$value[1]),
         lam_r   = lam_r,
         lam_r_s = lam_r_s,
-        germ_est= germ_est,
-        sb      = sb,
+        # germ_est= germ_est,
+        # sb      = sb,
         year    = site_all$year[ii],
         site_id = site_all$site_id[ii])
 
@@ -519,27 +565,27 @@ yr_lambdas <-function(ii, germ_est, sb, dangre){
 # T,F
 
 # store lambdas
-lam_df   <- lapply(1:23, yr_lambdas, 
-                   germ_est=F, sb=T, dangre=F) %>% bind_rows
+lam_df   <- lapply(1:23, yr_lambdas) %>% bind_rows
+                   # germ_est=F, sb=T, dangre=F) %>% bind_rows
 
-# potential output labes
-label_df <- data.frame( title = c('Seedbank model, experimental data',
-                                  'No seedbank model, experimental data',
-                                  'Seedbank model, estimated data',
-                                  'No seedbank model, estimated data'),
-                        file  = c( 'lambda_seedbank_experimental_g',
-                                   'lambda_Noseedbank_experimental_g',
-                                   'lambda_seedbank_estimated_g',
-                                   'lambda_Noseedbank_estimated_g'),
-                        germ_est= c(F,F,T,T), 
-                        sb    =   c(T,F,T,F),
-                        stringsAsFactors = F
-                      )
+# # potential output labes
+# label_df <- data.frame( title = c('Seedbank model, experimental data',
+#                                   'No seedbank model, experimental data',
+#                                   'Seedbank model, estimated data',
+#                                   'No seedbank model, estimated data'),
+#                         file  = c( 'lambda_seedbank_experimental_g',
+#                                    'lambda_Noseedbank_experimental_g',
+#                                    'lambda_seedbank_estimated_g',
+#                                    'lambda_Noseedbank_estimated_g'),
+#                         germ_est= c(F,F,T,T), 
+#                         sb    =   c(T,F,T,F),
+#                         stringsAsFactors = F
+#                       )
   
-# store labels
-plot_lab <- label_df %>% 
-              subset( germ_est == first(lam_df$germ_est) &
-                      sb       == first(lam_df$sb) )
+# # store labels
+# plot_lab <- label_df %>%
+#               subset( germ_est == first(lam_df$germ_est) &
+#                       sb       == first(lam_df$sb) )
 
 # # store R squared  
 # mod <- lm(lam_df$lam_det~lam_df$lam_r, offset=)
@@ -553,55 +599,71 @@ ggplot(lam_df, aes(x=lam_r, y=lam_det)) +
   ylab(expression(lambda)) +
   # annotate( 'text', label = paste0('R2= ',R2), x=0.5, y=2) +
   theme( axis.title = element_text( size=25) ) + 
-  ggtitle( plot_lab$title ) +
-  ggsave( paste0('results/ipm/validation/',plot_lab$file,'.tiff'),
+  ggtitle( 'Lambda seedbank estimated g, correct abor/cons' ) +
+  ggsave( paste0('results/ipm/validation/',
+                 'lambda_seedbank_estimated_g_abor_clip','.tiff'),
           width = 6.3, height = 6.3, compression="lzw" )
+
 
 # compare projected vs. observed population numbers -----------
 
-lam_df %>% .$site_id %>% unique
+# project pop numbers
+rel_vs_del_lambda <- function(site_id_str){
 
-site_id_str <- 'NB (2)'
-ii_add      <- ifelse(site_id_str == 'NB (2)',3,2)
+  # population numbers
+  pop_nt0  <- read.csv( "data/lupine_all.csv") %>% 
+                subset( location == site_id_str ) %>% 
+                subset( !is.na(stage_t0) ) %>% 
+                count( year, location ) %>% 
+                setNames( c('year','location','n_t0') )
+  
+  pop_nt1  <- read.csv( "data/lupine_all.csv") %>% 
+                subset( location == site_id_str ) %>% 
+                subset( !is.na(stage_t0) ) %>% 
+                count( year, location ) %>% 
+                mutate( year = year - 1) %>% 
+                setNames( c('year','location','n_t1') )
+  
+  pop_tr1  <- full_join(pop_nt0, pop_nt1)
+  
+  # format dataframe to plot info
+  n1_df   <- subset(lam_df, site_id == site_id_str ) %>% 
+                select( lam_det, lam_r, year ) %>% 
+                # join population numbers
+                left_join( pop_tr1 ) %>% 
+                # project population
+                mutate( proj_t1 = n_t0 * lam_det ) %>% 
+                select( year, location, n_t1, proj_t1 ) %>% 
+                gather(abund_type, value,n_t1 :proj_t1) %>% 
+                mutate( abund_type = replace(abund_type,
+                                             abund_type == 'proj_t1',
+                                             'projected') ) %>% 
+                mutate( abund_type = replace(abund_type,
+                                             abund_type == 'n_t1',
+                                             'observed') )
 
-# associate lambda with site/year
-subset(lam_df, site_id == site_id_str )
+}
 
-pop_n   <- read.csv( "data/lupine_all.csv") %>% 
-              subset( location == site_id_str ) %>% 
-              subset( !is.na(stage_t0) ) %>% 
-              count( year, location ) 
+# sites to 
+site_id_l   <- lam_df %>% .$site_id %>% unique
 
-# format dataframe to plot info
-n1_df   <- subset(lam_df, site_id == site_id_str ) %>% 
-              select( lam_det, lam_r, year ) %>% 
-              left_join( pop_n ) %>% 
-              mutate( n_t1 = n * lam_det,
-                      year = year + 1 ) %>% 
-              select( year, location, n_t1, lam_det ) %>% 
-              bind_rows( rename(pop_n[ii_add,], n_t1 = n ) ) %>% 
-              arrange( year ) %>% 
-              left_join( pop_n ) %>% 
-              select( - lam_det) %>% 
-              gather( abund_type, value, n:n_t1) %>% 
-              mutate( abund_type = replace(abund_type,
-                                           abund_type == 'n_t1',
-                                           'projected') ) %>% 
-              mutate( abund_type = replace(abund_type,
-                                           abund_type == 'n',
-                                           'observed') )
+# project populations and put it all together
+proj_obs_df <- lapply(site_id_l, rel_vs_del_lambda) %>% 
+                  bind_rows
 
-              
-ggplot( data=n1_df,
+# plot it all          
+ggplot( data=proj_obs_df,
         aes(x=year, y=value) ) +
   geom_line( aes(color=abund_type),
-             lwd = 1 ) + 
+             lwd = 2 ) + 
   viridis::scale_color_viridis(discrete=T) +
-  ggsave( paste0('results/ipm/validation/n_vr_nproj_',
-                 site_id_str,'.tiff'),
-          width=6.3,height=6.3,compression='lzw')
-
-
+  ylab( 'Population Number' ) +
+  facet_grid( 1 ~ location ) +
+  scale_x_continuous(breaks = 0:2100) +
+  theme( axis.text.x = element_text( angle = 70) ) +
+  ggsave( paste0('results/ipm/validation/',
+                 'BS_DR_NB_germ_aborclip.tiff'),
+          width=6.3,height=4,compression='lzw')
 
 
 # # Compare a validation in the literature
