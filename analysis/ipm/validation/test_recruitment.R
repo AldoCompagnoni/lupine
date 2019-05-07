@@ -1,5 +1,4 @@
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 options(stringsAsFactors = F)
 library(dplyr)
 library(tidyr)
@@ -10,31 +9,33 @@ library(lme4)
 source('analysis/vital_rates/plot_binned_prop.R')
 
 
-bs <- data.frame( site_id = 'BS (7)',
-                  year    = c(2009:2017) )
-dr <- data.frame( site_id = 'DR (3)',
-                  year    = c(2009:2014,2016:2017) )
-nb <- data.frame( site_id = 'NB (2)',
-                  year    = c(2010,2012:2016) )
+bs <- data.frame( location = 'BS (7)',
+                  year     = c(2009:2017) )
+dr <- data.frame( location = 'DR (3)',
+                  year     = c(2009:2014,2016:2017) )
+nb <- data.frame( location = 'NB (2)',
+                  year     = c(2010,2012:2016) )
 site_all <- list(bs, dr, nb) %>% bind_rows 
 
 # subset by year and site
 sub_s_yr    <- function(x_df){
   x_df %>% 
-    subset( (location %in% site_all$site_id) & 
+    subset( (location %in% site_all$location) & 
              year     %in% site_all$year       ) 
-} 
+}
 
 
 # read data --------------------------------------------
-
-abort_df  <- read.csv( "data/lupine_all.csv") %>% sub_s_yr
 fruit_rac <- read_xlsx('data/fruits_per_raceme.xlsx')
 seed_x_fr <- read_xlsx('data/seedsperfruit.xlsx')
-cosump_df <- read_xlsx('data/consumption.xlsx')
 germ      <- read_xlsx('data/seedbaskets.xlsx')
 lupine_df <- read.csv( "data/lupine_all.csv") %>% sub_s_yr
+site_df   <- select(lupine_df,location) %>% 
+                unique %>% 
+                mutate( Site = gsub(' \\([0-9]\\)','', location) %>% 
+                                  toupper ) 
   
+
 # vr models --------------------------------------------
 
 # germination. g1, g2 not 100% correct, but by 0.01/0.001 points
@@ -54,18 +55,45 @@ seed_fr   <- glm(SEEDSPERFRUIT ~ 1, data=mutate(seed_x_fr,
 seed_fr_p <- coef(seed_fr) %>% exp
 
 # consumption 
-cons_p    <- cosump_df %>% 
-                subset( Site == 'BS') %>% 
-                subset( Year %in% c(2009:2017) ) %>% 
-                .$Mean_consumption %>% 
-                as.numeric %>% 
-                mean(na.rm=T)
-
+cons_df    <- read_xlsx('data/consumption.xlsx') %>% 
+                mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
+                select( Year, Site, Mean_consumption) %>% 
+                # expand potential "cases"
+                complete( Site, Year) %>% 
+                # update name
+                mutate( Site = toupper(Site) ) %>% 
+                mutate( Mean_consumption = replace(Mean_consumption,
+                                                   is.na(Mean_consumption),
+                                                   mean(Mean_consumption,na.rm=T) 
+                                                   ) ) %>% 
+                left_join( site_df ) %>% 
+                # remove NA locations
+                subset( !is.na(location) ) %>% 
+                # remove annoying code
+                select( -Site ) %>% 
+                rename( year = Year,
+                        cons = Mean_consumption )
+                
 # abortion 
-abort_m   <- glm(cbind(numab_t0, numrac_t0-numab_t0) ~ 1, data = abort_df, family='binomial')
-abort_p   <- coef(abort_m) %>% boot::inv.logit()
+abor_df  <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                subset( !is.na(numrac_t0) ) %>% 
+                # remove non-flowering individuals
+                subset( !(flow_t0 %in% 0) ) %>% 
+                # remove zero fertility (becase fertility should not be 0)
+                subset( !(numrac_t0 %in% 0) ) %>% 
+                # only years indicated by Tiffany
+                subset( year %in% c(2010, 2011, 2013:2017) ) %>% 
+                # calculate abortion rates
+                mutate( ab_r      = numab_t0 / numrac_t0 ) %>% 
+                group_by( location, year ) %>% 
+                summarise( ab_r_m = mean(ab_r, na.rm=T) ) %>% 
+                ungroup %>% 
+                right_join( site_all ) %>% 
+                mutate( ab_r_m = replace(ab_r_m,
+                                         is.na(ab_r_m),
+                                         mean(ab_r_m, 
+                                              na.rm=T)) )
   
-
 # calculate raw data --------------------------------------------------
 
 # number of seedlings in each site/year combination
@@ -96,43 +124,71 @@ rac_n   <- lupine_df %>%
               # subset( !(numrac_t0 %in% 0) ) %>% 
               group_by( year, location ) %>% 
               summarise( tot_rac = sum(numrac_t0) ) %>% 
-              ungroup
+              ungroup %>% 
+              left_join( abor_df ) %>% 
+              left_join( cons_df ) %>% 
+              inner_join( site_all )
 
 # check number of recruits
 recr_df <- full_join( pop_n, sl_n ) %>% 
               full_join( rac_n ) %>% 
               subset( !is.na(sl_n) ) %>% 
+              # select only year/sites that we need
+              inner_join( site_all ) %>% 
               mutate( seed_n = tot_rac * 
-                               (1-(abort_p + cons_p)) * # abortion + clipped
+                               (1-ab_r_m) * (1-cons) * # abortion + clipped
                                fr_rac_p * 
                                seed_fr_p ) %>% 
+              # round to fit a binomial model
               mutate( seed_n = round(seed_n,0) ) %>% 
-              # WHY ARE NAs HAPPENING?
-              subset( !is.na(seed_n) ) %>% 
               # create failed to germinate
-              mutate( fail_g = seed_n - sl_n ) %>% 
-              # sometimes you have more seedlings than seeds.
-              # in this case, assume germination == 100%
-              mutate( fail_g = replace(fail_g,
-                                       fail_g < 0,
-                                       sl_n[fail_g < 0]) )
+              mutate( fail_g = seed_n - sl_n )
 
 
-mod   <- glm(cbind(sl_n, fail_g) ~ 1, data=recr_df, family='binomial')
-x_seq <- seq(0,max(recr_df$seed_n), length.out=24)
-y_pre <- x_seq * boot::inv.logit( coef(mod) )
+# model selection 
+mod      <- glm(cbind(sl_n, fail_g) ~ 1, data=recr_df, family='binomial')
+mod_loc  <- glm(cbind(sl_n, fail_g) ~ location, data=recr_df, family='binomial')
+mod_yr   <- glm(cbind(sl_n, fail_g) ~ year, data=recr_df, family='binomial')
+mod_locyr<- glm(cbind(sl_n, fail_g) ~ location:year, data=recr_df, family='binomial')
+AIC(mod, mod_loc, mod_yr, mod_locyr)
+
+# prepare prediction data frame
+pred_df  <- recr_df %>% select(location) %>% unique
+pred_v   <- predict(mod_loc, 
+                    type    = 'response',
+                    newdata = pred_df )
+pred_df  <- mutate( pred_df, 
+                    coef = pred_v ) %>% 
+            mutate( x = rep(1500,3),
+                    y = c(180,170,160) ) %>% 
+            mutate( lab = paste0(location,'=',
+                                 round(coef,4)*100,'%'))
+
 
 # plot it out
-ggplot(recr_df, aes(x=seed_n, y=sl_n)) +
+ggplot(recr_df, aes(x     = seed_n, 
+                    y     = sl_n,
+                    color = location) ) +
   geom_point( ) +
-  xlab( expression('Seed number '['t0']) ) +
-  ylab( expression('Seedlings '['t1']) ) +
+  xlab( expression('Seed number'['t0']) ) +
+  ylab( expression('Seedlings'['t1']) ) +
   theme( axis.title = element_text( size = 20),
          axis.text  = element_text( size = 20) ) +
-  geom_line( aes(x = x_seq, y = y_pre),
-             size = 1) + 
-  ggsave( 'results/validation/seedlings_vs_seeds.tiff',
+  geom_abline( data = pred_df,
+               aes(intercept = 0, 
+                   slope     = coef,
+                   color     = location),
+               size = 1) + 
+  # plot percent germination
+  geom_text( data= pred_df,
+                aes(x=x,
+                y=y,
+                label = lab),
+             vjust = 1) +
+  ggsave( 'results/ipm/validation/seedlings_vs_seeds.tiff',
           width = 6.3, height = 6.3, compression="lzw" )
+
+
 
 
 # # germination rate is abysmally low!
