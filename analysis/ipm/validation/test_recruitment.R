@@ -193,7 +193,6 @@ ggplot(recr_df, aes(x     = seed_n,
   ggsave( 'results/ipm/validation/seedlings_vs_seeds.tiff',
           width = 6.3, height = 6.3, compression="lzw" )
 
-
 # store germination adjustement parameter
 pred_df %>% 
   mutate( coef = pred_v ) %>% 
