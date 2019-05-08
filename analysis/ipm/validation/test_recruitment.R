@@ -61,21 +61,21 @@ seed_fr_p <- coef(seed_fr) %>% exp
 cons_df    <- read_xlsx('data/consumption.xlsx') %>% 
                 mutate( Mean_consumption = Mean_consumption %>% as.numeric) %>% 
                 select( Year, Site, Mean_consumption) %>% 
+                rename( cons = Mean_consumption,
+                        year = Year ) %>% 
                 # expand potential "cases"
-                complete( Site, Year) %>% 
+                complete( Site, year) %>% 
                 # update name
                 mutate( Site = toupper(Site) ) %>% 
-                mutate( Mean_consumption = replace(Mean_consumption,
-                                                   is.na(Mean_consumption),
-                                                   mean(Mean_consumption,na.rm=T) 
-                                                   ) ) %>% 
+                mutate( cons = replace(cons,
+                                       is.na(cons),
+                                       mean(cons[Site!='AL'],na.rm=T)
+                                       ) ) %>% 
                 left_join( site_df ) %>% 
                 # remove NA locations
                 subset( !is.na(location) ) %>% 
                 # remove annoying code
-                select( -Site ) %>% 
-                rename( year = Year,
-                        cons = Mean_consumption )
+                select( -Site )
                 
 # abortion 
 abor_df  <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
@@ -181,7 +181,8 @@ ggplot(recr_df, aes(x     = seed_n,
                aes(intercept = 0, 
                    slope     = coef,
                    color     = location),
-               size = 1) + 
+               alpha = 0.7,
+               size  = 1 ) + 
   # plot percent germination
   geom_text( data= pred_df,
                 aes(x=x,
