@@ -194,6 +194,10 @@ ggplot(recr_df, aes(x     = seed_n,
           width = 6.3, height = 6.3, compression="lzw" )
 
 
+# store germination adjustement parameter
+pred_df %>% 
+  mutate( coef = pred_v ) %>% 
+  write.csv('results/ml_mod_sel/germ/germ_adj.csv',row.names=F)
 
 
 # # germination rate is abysmally low!
