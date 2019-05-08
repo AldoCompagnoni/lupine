@@ -9,13 +9,17 @@ library(lme4)
 source('analysis/vital_rates/plot_binned_prop.R')
 
 
+att<- data.frame( location = 'ATT (8)',
+                  year     = c(2008:2012) )
+p9 <- data.frame( location = 'POP9 (9)',
+                  year     = c(2008:2014) )
 bs <- data.frame( location = 'BS (7)',
                   year     = c(2009:2017) )
 dr <- data.frame( location = 'DR (3)',
                   year     = c(2009:2014,2016:2017) )
 nb <- data.frame( location = 'NB (2)',
                   year     = c(2010,2012:2016) )
-site_all <- list(bs, dr, nb) %>% bind_rows 
+site_all <- list(bs, dr, nb, att, p9) %>% bind_rows 
 
 # subset by year and site
 sub_s_yr    <- function(x_df){
@@ -23,7 +27,6 @@ sub_s_yr    <- function(x_df){
     subset( (location %in% site_all$location) & 
              year     %in% site_all$year       ) 
 }
-
 
 # read data --------------------------------------------
 fruit_rac <- read_xlsx('data/fruits_per_raceme.xlsx')
@@ -159,10 +162,10 @@ pred_v   <- predict(mod_loc,
                     newdata = pred_df )
 pred_df  <- mutate( pred_df, 
                     coef = pred_v ) %>% 
-            mutate( x = rep(1500,3),
-                    y = c(180,170,160) ) %>% 
+            mutate( x = rep(2000,5),
+                    y = c(340,320,300,280,260) ) %>% 
             mutate( lab = paste0(location,'=',
-                                 round(coef,4)*100,'%'))
+                                 round(coef,4)*100,'%')) 
 
 
 # plot it out
@@ -185,6 +188,7 @@ ggplot(recr_df, aes(x     = seed_n,
                 y=y,
                 label = lab),
              vjust = 1) +
+  scale_color_viridis_d() +
   ggsave( 'results/ipm/validation/seedlings_vs_seeds.tiff',
           width = 6.3, height = 6.3, compression="lzw" )
 
