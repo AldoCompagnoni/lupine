@@ -8,24 +8,39 @@ library(testthat)
 library(lme4)
 source('analysis/vital_rates/plot_binned_prop.R')
 
+# # AL and BR individuals (only track these)
+# al_br_ind <- list( read.csv('data/from_2008_to_2017/AL_subplot_all_SL_tracked.csv'),
+#                    read.csv('data/from_2008_to_2017/BR_subplot_all_SL_tracked.csv') ) %>% 
+#                 bind_rows %>% 
+#                 # what are these anyway?
+#                 subset( !(NEWID == 0) )
 
-att<- data.frame( location = 'ATT (8)',
-                  year     = c(2008:2012) )
-p9 <- data.frame( location = 'POP9 (9)',
-                  year     = c(2008:2014) )
-bs <- data.frame( location = 'BS (7)',
-                  year     = c(2009:2017) )
-dr <- data.frame( location = 'DR (3)',
-                  year     = c(2009:2014,2016:2017) )
-nb <- data.frame( location = 'NB (2)',
-                  year     = c(2010,2012:2016) )
+
+att   <- data.frame( location = 'ATT (8)',
+                     year     = c(2008:2012) )
+p9    <- data.frame( location = 'POP9 (9)',
+                     year     = c(2008:2014) )
+bs    <- data.frame( location = 'BS (7)',
+                     year     = c(2009:2017) )
+dr    <- data.frame( location = 'DR (3)',
+                     year     = c(2009:2014,2016:2017) )
+nb    <- data.frame( location = 'NB (2)',
+                     year     = c(2010,2012:2016) )
+# al_br <- expand.grid( location = c('AL (1)','BR (6)'),
+#                       year     = c(2008:2018),
+#                       stringsAsFactors = F )
+#   
 site_all <- list(bs, dr, nb, att, p9) %>% bind_rows 
 
 # subset by year and site
 sub_s_yr    <- function(x_df){
   x_df %>% 
     subset( (location %in% site_all$location) & 
-             year     %in% site_all$year       ) 
+             year     %in% site_all$year       ) #%>% 
+    # subset( !( location %in% c('AL (1)','BR (6)') &
+    #            !(newid %in% al_br_ind$NEWID) 
+    #           ) 
+    #        )
 }
 
 # read data --------------------------------------------
@@ -37,7 +52,7 @@ site_df   <- select(lupine_df,location) %>%
                 unique %>% 
                 mutate( Site = gsub(' \\([0-9]\\)','', location) %>% 
                                   toupper ) 
-  
+
 
 # vr models --------------------------------------------
 
@@ -188,13 +203,14 @@ ggplot(recr_df, aes(x     = seed_n,
                 aes(x=x,
                 y=y,
                 label = lab),
-             vjust = 1) +
+             vjust = 3) +
   scale_color_viridis_d() +
   ggsave( 'results/ipm/validation/seedlings_vs_seeds.tiff',
           width = 6.3, height = 6.3, compression="lzw" )
 
 # store germination adjustement parameter
 select(pred_df,location, coef) %>% 
+  rename( germ_obs = coef ) %>% 
   write.csv('results/ml_mod_sel/germ/germ_adj.csv',row.names=F)
 
 
