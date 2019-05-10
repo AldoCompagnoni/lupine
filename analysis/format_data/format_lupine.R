@@ -1,7 +1,7 @@
 # Script to automatically format demographic data starting from the shapefile
 # 1. read original files and pre-format 
 # 2. 
-setwd("C:/cloud/Dropbox/lupine")
+rm(list=ls())
 options(stringsAsFactors = F)
 require(rgdal)
 library(dplyr)
@@ -575,6 +575,51 @@ trans_out <- trans_all %>%
                        -len_t0, -wid_t0, size_t0, -numall_t0, 
                        -len_t1, -wid_t1, size_t1, -numall_t1 )
 
+# scale log_area_t0 values!
+
+# get the mean and sd of sizes at time t0 and t1
+size_t0 <- trans_out %>% 
+             subset( !is.na(log_area_t0) )
+size_t1 <- trans_out %>% 
+             subset( !is.na(log_area_t1) )
+
+
+# test that there is only ONE size per newid/year combination
+expect_equal( count(size_t0,newid, year) %>% 
+                .$n %>% 
+                unique, 1 )
+
+expect_equal( count(size_t1,newid, year) %>% 
+                .$n %>% 
+                unique, 1 )
+
+# size mean and sd
+size_t0_m  <- size_t0$log_area_t0 %>% mean
+size_t0_sd <- size_t0$log_area_t0 %>% sd
+
+size_t1_m  <- size_t1$log_area_t1 %>% mean
+size_t1_sd <- size_t1$log_area_t1 %>% sd
+
+# Update model 
+trans_out <- trans_out %>% 
+               mutate( log_area_t0_z = (log_area_t0 - size_t0_m) /
+                                        size_t0_sd,
+                       log_area_t1_z = (log_area_t1 - size_t1_m) /
+                                        size_t1_sd )
+
+# test that this is equal to using "scale"
+all.equal( trans_out$log_area_t0_z,
+           trans_out$log_area_t0 %>%
+             scale() %>% 
+             as.numeric ) %>% 
+  expect_true
+all.equal( trans_out$log_area_t1_z,
+           trans_out$log_area_t1 %>%
+             scale() %>% 
+             as.numeric ) %>% 
+  expect_true
+
+# You can finally write this out!
 write.csv(trans_out, 'data/lupine_all.csv', row.names=F)
 
 
