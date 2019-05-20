@@ -141,6 +141,11 @@ climate_mods <- list(
 
 # years to do crossvalidation on
 years_cv  <- unique(surv$year)
+mod_nam   <- c( 'null', 
+                'ppt_t0',  'ppt_tm1', 
+                'tmp_t0',  'tmp_tm1',
+                'oni_t0',  'oni_tm1',
+                'spei_to', 'spei_tm1' )
 
 # function to carry out crossvalidation
 crossval <- function(yr_ii){ #length(years_cv)
@@ -152,31 +157,24 @@ crossval <- function(yr_ii){ #length(years_cv)
 
   # fit all models
   mods_clim <- lapply( climate_mods, 
-                         function(x) glmer(x, data=train_df, family='binomial') ) %>% 
-                    setNames( c( 'null',
-                                 'ppt_t0', 'ppt_tm1', 
-                                 'tmp_t0', 'tmp_tm1',
-                                 'oni_t0', 'oni_tm1' ) )
+                         function(x) glmer(x, data=train_df, family='binomial') ) 
   
-  mods_brier <- list()
+  pred_df <- list()
   for(ii in 1:length(mods_clim)){
     
-    mods_brier[[ii]] <- test_df %>% 
-                          # calculate predictions
-                          mutate( pred = predict(mods_clim[[ii]], 
-                                                 newdata=test_df, 
-                                                 type = 'response',
-                                                 re.form=NA) 
-                                ) %>% 
-                          # brier's score
-                          mutate( brier = (resp - pred)^2 ) %>% 
-                          .$brier
+    pred_df[[ii]] <- test_df %>% 
+                        # calculate predictions
+                        mutate( pred = predict(mods_clim[[ii]], 
+                                               newdata=test_df, 
+                                               type = 'response',
+                                               re.form=NA) 
+                              ) %>% 
+                        select( year, pred, resp ) %>% 
+                        mutate( model = mod_nam[ii] )
     
   }
   
-  mods_brier %>% 
-    setNames( names(mods_clim) ) %>% 
-    as.data.frame 
+  pred_df %>% bind_rows 
   
 }
 
@@ -184,7 +182,7 @@ crossval <- function(yr_ii){ #length(years_cv)
 # parallel processing model fit -------------------------------------------------------
 
 # detect cores
-cores     <- detectCores()
+cores     <- (detectCores() - 1)
 # set up as many clusters as detected by 'detectCores()'
 cluster   <- parallel::makePSOCKcluster(cores)
 
@@ -193,53 +191,44 @@ clusterEvalQ(cluster, list(library(lme4), library(boot),
                            library(dplyr) , library(tidyr)) )
 
 # attach objects that will be needed on each cluster
-clusterExport(cluster, c('surv_clim', 'climate_mods') )
+clusterExport(cluster, c('surv_clim', 'climate_mods', 'mod_nam') )
 
 # Fit 5 alternative models on 200 bootstrapped samples
 init_t        <- Sys.time()
 boostr_par_l  <- parLapply(cluster, years_cv, crossval)
-boostr_par_l  <- boostr_par_l %>% 
-                   lapply( function(x) setNames(x, c('null',
-                                                     'ppt_t0', 'ppt_tm1', 
-                                                     'tmp_t0', 'tmp_tm1',
-                                                     'oni_t0', 'oni_tm1') ) ) 
 Sys.time() - init_t
 
 # get scores
-score_df <- Reduce(function(...) rbind(...), boostr_par_l) %>% 
-              colMeans %>% 
-              as.data.frame %>% 
-              tibble::add_column(model = row.names(.), .before=1) %>% 
-              rename( score = "." ) %>% 
-              arrange( score ) %>% 
-              mutate( dScore = score - score[1] )
+score_df <- boostr_par_l %>% 
+              bind_rows %>% 
+              # calculate negative log likelihood and Squared Error
+              mutate( log_lik = dbinom(x    = resp, 
+                                       size = 1, 
+                                       prob = pred,
+                                       log  = T ) * -1 ) %>% 
+              mutate( se      = (resp - pred)^2 ) %>% 
+              group_by( model ) %>% 
+              # sum of neg_log_lik/ root mean squared error  
+              summarise( log_lik_sum = sum(log_lik),
+                         rmse        = mean(se) %>% sqrt ) %>% 
+              ungroup %>% 
+              as.data.frame()
 
-write.csv(score_df,
-          'results/vital_rates/crossval/surv_cv.csv',
-          row.names=F)
+
+# logarithmic score
+score_df %>% 
+  arrange( log_lik_sum ) %>% 
+  select( -rmse ) %>% 
+  mutate( dScore = log_lik_sum - log_lik_sum[1] ) %>% 
+  write.csv('results/vital_rates/crossval/surv_cv_logscore.csv',
+            row.names=F)
+
+# root mean squared error
+score_df %>% 
+  arrange( rmse ) %>% 
+  select( -log_lik_sum ) %>% 
+  mutate( dScore = rmse - rmse[1] ) %>% 
+  write.csv('results/vital_rates/crossval/surv_cv_rmse.csv',
+            row.names=F)
 
 save.image( 'results/vital_rates/crossval/surv_cv.Rdata' )
-
-# # fit best model with all data
-# best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + tmp_t0 + 
-#                     (log_area_t0 | year) + (1 | location),
-#                   data = surv_clim, family='binomial')
-# 
-# re_df   <- ranef(best_mod)$year %>% 
-#               tibble::add_column(.before=1, coef = row.names(.) ) %>% 
-#               bind_rows( ranef(best_mod)$location %>% 
-#                          tibble::add_column(.before=1, coef = row.names(.) )
-#               ) %>% 
-#               mutate( type_coef = 'ranef' )
-#   
-# out_df  <- fixef(best_mod) %>% 
-#               t %>% t %>% 
-#               as.data.frame %>% 
-#               tibble::add_column(.before=1, ranef = row.names(.) ) %>% 
-#               mutate( type_coef = 'fixef' ) %>% 
-#               bind_rows( re_df )
-#      
-# write.csv(out_df, 
-#           'results/ml_mod_sel/surv/surv_best_mod_cv.csv',
-#           row.names=F)
-# write.csv(score_df, 'results/ml_mod_sel/surv/surv_clim_sel_cv.csv', row.names = F)
