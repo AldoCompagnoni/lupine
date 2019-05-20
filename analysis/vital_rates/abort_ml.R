@@ -1,5 +1,4 @@
 rm(list=ls())
-setwd("C:/cloud/Dropbox/lupine")
 library(dplyr)
 library(tidyr)
 library(testthat)
@@ -14,18 +13,17 @@ lupine_df   <- read.csv( "data/lupine_all.csv")
 enso        <- read.csv( "data/enso_data.csv")
 clim        <- read.csv( "data/prism_point_reyes_87_18.csv")
 
-
 # data format --------------------------------------------------------------
-abor        <- subset(lupine_df, !is.na(flow_t1) & flow_t1 == 1 ) %>% 
-                  subset( area_t1 != 0) %>% 
-                  subset( !is.na(numrac_t1) ) %>% 
+abor        <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                  subset( area_t0 != 0) %>% 
+                  subset( !is.na(numrac_t0) ) %>% 
                   # remove 
-                  subset( !(flow_t1 %in% 0) ) %>% 
-                  mutate( log_area_t1  = log(area_t1),
-                  log_area_t12 = log(area_t1)^2,
-                  year         = year + 1 ) %>% 
+                  subset( !(flow_t0 %in% 0) ) %>% 
+                  mutate( log_area_t02 = log(area_t0)^2) %>% 
                   # remove zero fertility (becase fertility should not be 0)
-                  subset( !(numrac_t1 %in% 0) )
+                  subset( !(numrac_t0 %in% 0) ) %>% 
+                  # only years indicated by Tiffany
+                  subset( year %in% c(2010, 2011, 2013:2018) )
 
 
 # climate format ----------------------------------------------------------------
@@ -92,46 +90,46 @@ abor_clim_mon  <- left_join(abor, clim_mon) %>%
 structure_mods <- list(
 
   # no quadratic
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | year),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | year) + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | year) + (1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | year) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (1 | newid) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | year),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | year) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | year) + (1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | year) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (1 | newid) + (1 | location),
 
   # quadratic
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year) + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year) + (1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | newid) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year) + (1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | newid) + (1 | location),
   
   # random slope no quadratic
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (log_area_t1 | year),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (log_area_t1 | year) + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (log_area_t1 | year) + (1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (log_area_t1 | year) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (log_area_t0 | year),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (log_area_t0 | year) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (log_area_t0 | year) + (1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (log_area_t0 | year) + (1 | newid),
 
   # random slope quadratic
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year) + (1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year) + (1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (1 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (1 | newid),
   
   # year + location random slope
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 +  (log_area_t1 | year) + (log_area_t1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 +  (1 | year) + (log_area_t1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 +  (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 +  (1 | year) + (log_area_t1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 +  (log_area_t0 | year) + (log_area_t0 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 +  (1 | year) + (log_area_t0 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 +  (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 +  (1 | year) + (log_area_t0 | location) + (1 | newid),
   
   # year + location random slope + quadratic effect
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year) + (log_area_t1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year) + (log_area_t1 | location),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + log_area_t12 + (1 | year) + (log_area_t1 | location) + (1 | newid)
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (log_area_t0 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year) + (log_area_t0 | location),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + log_area_t02 + (1 | year) + (log_area_t0 | location) + (1 | newid)
   
 )
 
@@ -159,19 +157,19 @@ AICtab(mods, weights=T)
 climate_mods <- list(
 
   # null
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
   
   # precipitation
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + ppt_t0 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + ppt_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + ppt_t0 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + ppt_tm1 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
   
   # temperature
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + tmp_t0 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + tmp_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + tmp_t0 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
   
   # enso
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + oni_t0 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid),
-  cbind(numab_t1, numall_t1-numab_t1) ~ log_area_t1 + oni_tm1 + (log_area_t1 | year) + (log_area_t1 | location) + (1 | newid)
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + oni_t0 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid),
+  cbind(numab_t0, numrac_t0-numab_t0) ~ log_area_t0 + oni_tm1 + (log_area_t0 | year) + (log_area_t0 | location) + (1 | newid)
   
 )
 
