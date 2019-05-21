@@ -20,55 +20,139 @@ enso        <- read.csv("data/enso_data.csv")
 surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
                   # subset( stage_t0 != 'SL' ) %>%
                   subset( area_t0 != 0) %>%
-                  mutate( log_area_t0 = log(area_t0),
-                          year        = year + 1 ) %>% 
-                  mutate( log_area_t02 = log_area_t0^2,
-                          log_area_t03 = log_area_t0^3 ) #%>% 
-                  # mutate( log_area_t0  = scale(log_area_t0) %>% as.vector,
-                  #         log_area_t02 = scale(log_area_t02) %>% as.vector )
-  
+                  mutate( log_area_t0  = log_area_t0_z ) %>% 
+                  mutate( log_area_t02 = log_area_t0_z^2,
+                          log_area_t03 = log_area_t0_z^3 )
+
 # climate format ----------------------------------------------------------------
-years     <- unique(surv$year)
+years     <- 2003:2018 #unique(surv$year) 
 m_obs     <- 5
 m_back    <- 36
 
-# calculate yearly anomalies
-year_anom <- function(x, var ){
-  
+# calculate yearly anomalies from monthly anomalies
+year_m_anom <- function(x, var ){
+
   # set names of climate variables
   clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
-  
-  mutate(x, 
+
+  mutate(x,
          avgt0     = x %>% select(V1:V12) %>% rowSums,
          avgtm1    = x %>% select(V13:V24) %>% rowSums,
          avgt0_tm1 = x %>% select(V1:V24) %>% rowSums,
-         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>% 
-    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>% 
+         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>%
+    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>%
     setNames( c('year',clim_names) )
+
+}
+
+# calculate yearly anomalies
+year_anom <- function(clim_x, clim_var = "ppt", 
+                      years, m_back, m_obs ){
+  
+  # "spread" the 12 months
+  clim_m <- select(clim_x, -clim_var )
+  
+  # select temporal extent
+  clim_back <- function(yrz, m_obs, dat){
+    id <- which(dat$year == yrz & dat$month_num == m_obs)
+    r  <- c( id:(id - (m_back-1)) )
+    return(dat[r,"clim_value"])
+  }
+  
+  # climate data in matrix form 
+  year_by_month_mat <- function(dat, years){
+    do.call(rbind, dat) %>% 
+      as.data.frame %>%
+      tibble::add_column(year = years, .before=1)
+  }
+  
+  # calculate monthly precipitation values
+  clim_x_l  <- lapply(years, clim_back, m_obs, clim_m)
+  x_clim    <- year_by_month_mat(clim_x_l, years) %>% 
+                  gather(month,t0,V1:V12) %>% 
+                  select(year,month,t0) %>% 
+                  mutate( month = gsub('V','',month) ) %>%
+                  mutate( month = as.numeric(month) )
+  
+  if( clim_var == 'ppt'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( ppt_t0 = sum(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( ppt_t0  = scale(ppt_t0)[,1] ) %>% 
+                mutate( ppt_tm1 = lag(ppt_t0) )
+  }
+  if( clim_var == 'tmp'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( tmp_t0 = mean(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( tmp_t0  = scale(tmp_t0)[,1] ) %>% 
+                mutate( tmp_tm1 = lag(tmp_t0) )
+  }
+  
+  raw_df
   
 }
 
+
 # format climate - need to select climate predictor first 
 ppt_mat <- subset(clim, clim_var == "ppt") %>%
-              prism_clim_form("precip", years, m_back, m_obs) %>% 
-              year_anom('ppt')
+              year_anom("ppt", years, m_back, m_obs)
+              # prism_clim_form("precip", years, m_back, m_obs) %>% 
+              # year_anom('ppt')
 
 tmp_mat <- subset(clim, clim_var == 'tmean') %>% 
-              prism_clim_form('tmean', years, m_back, m_obs) %>% 
-              year_anom('tmp')
+              year_anom("tmp", years, m_back, m_obs) 
+              # prism_clim_form('tmean', years, m_back, m_obs) %>% 
+              # year_anom('tmp')
   
 enso_mat <- subset(enso, clim_var == 'oni' ) %>%
               month_clim_form('oni', years, m_back, m_obs) %>% 
-              year_anom('oni')
+              year_m_anom('oni')
 
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
                     list(ppt_mat,tmp_mat,enso_mat) )
 
-
 # demography plus clim
 surv_clim <- left_join(surv, clim_mat) %>%
                 subset( !is.na(location) )
+
+
+climate_mods <- list(
+
+  # null
+  surv_t1 ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # precipitation
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + ppt_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + ppt_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # temperature
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # enso
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + oni_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + oni_tm1 + (log_area_t0 | year) + (log_area_t0 | location)
+  
+)
+
+# fit models
+mod_clim <- lapply( climate_mods,
+                     function(x) glmer(x, data=surv_clim, family='binomial') ) %>% 
+                setNames( c( 'null',
+                             'ppt_t0', 'ppt_tm1', 'tmp_t0', 'tmp_tm1', 
+                             'oni_t0', 'oni_tm1') )
+
+AICtab(mod_clim, weights=T)
+
+mod <- glmer(climate_mods[[4]], data=surv_clim, family='binomial') 
+
+
 
 
 # fit "structural" models ----------------------------------------------
@@ -185,11 +269,41 @@ mod_clim <- lapply( climate_mods,
 
 AICtab(mod_clim, weights=T)
 
+
+climate_mods <- list(
+
+  # null
+  surv_t1 ~ log_area_t0 + log_area_t02 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # precipitation
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + ppt_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + ppt_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # temperature
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+  
+  # enso
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + oni_t0 + (log_area_t0 | year) + (log_area_t0 | location),
+  surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + oni_tm1 + (log_area_t0 | year) + (log_area_t0 | location)
+  
+)
+
+# fit models
+mod_clim <- lapply( climate_mods,
+                     function(x) glmer(x, data=surv_clim, family='binomial') ) %>% 
+                setNames( c( 'null',
+                             'ppt_t0', 'ppt_tm1', 'tmp_t0', 'tmp_tm1', 
+                             'oni_t0', 'oni_tm1') )
+
+
 # out mod sel
 out <- data.frame( model  = AICtab(mod_clim, weights=T) %>% attributes %>% .$row.names,
                    dAIC   = AICtab(mod_clim, weights=T) %>% .$dAIC,
                    df     = AICtab(mod_clim, weights=T) %>% .$df,
                    weight = AICtab(mod_clim, weights=T) %>% .$weight )
+
+out
 
 write.csv(out, 'results/ml_mod_sel/surv/surv_mod_sel_no2.csv', row.names=F)
 
@@ -198,7 +312,8 @@ write.csv(out, 'results/ml_mod_sel/surv/surv_mod_sel_no2.csv', row.names=F)
 
 # oni_t0_tm1
 # best_mod <- mod_clim[[out$model[1]]]
-best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + 
+                  tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
                   data=surv_clim, family='binomial')
   
 
@@ -225,9 +340,30 @@ write.csv(out_df,
 
 # plot ---------------------------------------------------------------
 
-best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 +tmp_tm1 + (log_area_t0 | year) + (log_area_t0 | location),
+best_mod <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                  (log_area_t0 | year) + (log_area_t0 | location),
                   data=surv_clim, family='binomial')
   
+mod1 <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                  (1 | year) + (1 | location) + 
+                  (0 + log_area_t0 | year) + (0 + log_area_t0 | location),
+                  data=surv_clim, family='binomial')
+
+mod2 <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                  (log_area_t0 | year) + (log_area_t0 | location) + 
+                  (0 + log_area_t0 | year) + (0 + log_area_t0 | location) +
+                  (0 + log_area_t02 | year) + (0 + log_area_t02 | location),
+                  data=surv_clim, family='binomial')
+
+mod3 <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                  (log_area_t0 | year) + (log_area_t0 | location) + 
+                  (0 + log_area_t0 | year) + (0 + log_area_t0 | location) +
+                  (0 + log_area_t02 | year) + (0 + log_area_t02 | location) + 
+                  (0 + log_area_t03 | year) + (0 + log_area_t03 | location),
+                  data=surv_clim, family='binomial')
+
+AIC(best_mod, mod1, mod2, mod3)
+
 
 coefs  <- fixef(best_mod)
 
@@ -268,8 +404,6 @@ dev.off()
 
 # year-by-site plots ----------------------------------------------------------------
 
-
-#plot_binned_prop(surv, 10, log_area_t0, surv_t1)
 
 # data frame of binned proportions
 df_binned_prop <- function(ii, df_in, n_bins, siz_var, rsp_var, s_y_df){
@@ -329,7 +463,10 @@ surv_bin_df <- bind_rows( surv_bin_l ) %>%
                           tmp_tm1      = 0,
                           transition   = paste( paste0(year - 1), 
                                                 substr(paste0(year),3,4),
-                                                sep='-') ) %>% 
+                                                sep='-') )
+
+# include predicted values
+surv_bin_df <- surv_bin_df %>% 
                   mutate( yhat         = predict(best_mod, 
                                                  newdata=surv_bin_df, 
                                                  type='response') )
@@ -341,10 +478,12 @@ ggplot(data  = surv_bin_df,
            y = surv_t1) ) +
   geom_point(alpha = 1,
              pch   = 16,
-             size  = 0.5 ) +
+             size  = 0.5,
+             color = 'red') +
   geom_line(aes(x = log_area_t0,
                 y = yhat),
-            lwd = 1 )+
+            lwd = 1,
+            alpha = 0.5)+
   # split in panels
   facet_grid(location ~ transition) +
   theme_bw() +
@@ -358,7 +497,7 @@ ggplot(data  = surv_bin_df,
                                                        'mm') ),
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
          panel.spacing = unit('0.5',unit='mm') ) +
-  ggtitle("Survival of adults plants" ) + 
+  ggtitle("Survival of all plants" ) + 
   ggsave(filename = "results/vital_rates/surv_all.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
