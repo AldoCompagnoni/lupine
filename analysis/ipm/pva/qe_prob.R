@@ -480,7 +480,7 @@ kernel <- function(tmp_anom, pars){
   plant_s1   <- fx(y,pars,tmp_anom) * pars$g1
 
   # seeds that go directly to seedlings germinate right away 
-  Fmat       <- (outer(y,y, fxy, pars, tmp_anom) * pars$g0 * h) 
+  Fmat       <- outer(y,y, fxy, pars, tmp_anom) * pars$g0 * h
 
   # seeds that enter 2 yr-old seed bank
   s_mat[2,1] <- 1
@@ -525,59 +525,59 @@ kernel <- function(tmp_anom, pars){
   # expect_true( ((outer(y_s,y,gxy_s,pars)*h) %>% t %>% colSums > 0.97) %>% all)
   
 }
-
-# average kernels for each population 
-loc_v       <- lupine_df$location %>% unique
-ker_avg_pop <- function(loc_n) kernel(0, update_par(loc_n) )
-ker_avg_l   <- lapply(loc_v, ker_avg_pop) %>% setNames( loc_v )
-
-# stable stage distributions
-ssd_ker     <- function(x){
-  eK <- eigen(x)
-  w  <- Re(eK$vectors[,1])
-  w/sum(w)
-}
   
-# list of stable stage distributions 
-ssd_l  <- lapply(ker_avg_l, ssd_ker)
-
-# starting population sizes
-obs_n  <- lupine_cnt %>% 
-            mutate( AL = replace(AL,
-                                 year == 2018,
-                                 AL[year == 2017]) ) %>% 
-            subset( year == 2018 ) %>% 
-            select( -AL.REST ) %>% 
-            gather( Site, pop_n, AL:POP9 ) %>% 
-            left_join( site_df ) %>% 
-            select( -Site )
-
-# starting pulation vectors
-start_vec <- function(loc_n){
+  # average kernels for each population 
+  loc_v       <- lupine_df$location %>% unique
+  ker_avg_pop <- function(loc_n) kernel(0, update_par(loc_n) )
+  ker_avg_l   <- lapply(loc_v, ker_avg_pop) %>% setNames( loc_v )
   
-  ssd_x    <- ssd_l[loc_n] %>% unlist %>% as.numeric
+  # stable stage distributions
+  ssd_ker     <- function(x){
+    eK <- eigen(x)
+    w  <- Re(eK$vectors[,1])
+    w/sum(w)
+  }
+    
+  # list of stable stage distributions 
+  ssd_l  <- lapply(ker_avg_l, ssd_ker)
   
-  # redistribute individuals across non-seeds 
-  cnt      <- subset(obs_n, 
-                     location == loc_n)$pop_n
+  # starting population sizes
+  obs_n  <- lupine_cnt %>% 
+              mutate( AL = replace(AL,
+                                   year == 2018,
+                                   AL[year == 2017]) ) %>% 
+              subset( year == 2018 ) %>% 
+              select( -AL.REST ) %>% 
+              gather( Site, pop_n, AL:POP9 ) %>% 
+              left_join( site_df ) %>% 
+              select( -Site )
   
-  # proportions of individuals out of the seedbank
-  non_sl_p <- ssd_x[-c(1:2)] %>% sum
+  # starting pulation vectors
+  start_vec <- function(loc_n){
+    
+    ssd_x    <- ssd_l[loc_n] %>% unlist %>% as.numeric
+    
+    # redistribute individuals across non-seeds 
+    cnt      <- subset(obs_n, 
+                       location == loc_n)$pop_n
+    
+    # proportions of individuals out of the seedbank
+    non_sl_p <- ssd_x[-c(1:2)] %>% sum
+    
+    # seed bank 1 and 2 sensu Dangremond et al. 2010
+    sb2      <- (ssd_x[1] * cnt) / non_sl_p
+    sb1      <- (ssd_x[2] * cnt) / non_sl_p
+    
+    # prop individuals in non seedling stages
+    non_sl   <- ssd_x[-c(1:2)] * cnt
+    
+    # redistributed individuals
+    c(sb2,sb1,non_sl)
+    
+  }
   
-  # seed bank 1 and 2 sensu Dangremond et al. 2010
-  sb2      <- (ssd_x[1] * cnt) / non_sl_p
-  sb1      <- (ssd_x[2] * cnt) / non_sl_p
-  
-  # prop individuals in non seedling stages
-  non_sl   <- ssd_x[-c(1:2)] * cnt
-  
-  # redistributed individuals
-  c(sb2,sb1,non_sl)
-  
-}
-
-# Starting vector!
-start_v_l <- lapply(loc_v, start_vec) %>% setNames(loc_v)
+  # Starting vector!
+  start_v_l <- lapply(loc_v, start_vec) %>% setNames(loc_v)
 
 
 
