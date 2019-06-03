@@ -145,18 +145,44 @@ clim_mo %>%
   ggplot( aes(x=year, 
               y=value) ) +
   geom_line( aes(color=measure),
-             lwd = 1 ) + 
+             lwd = 2 ) + 
   scale_color_viridis_d() +
   ylab( 'Anomaly' ) + 
   xlab( 'Year' ) +
   geom_vline( xintercept = 2006,
-              lty  = 2 ) + 
+              lty  = 2) + 
   theme( axis.title = element_text( size = 20),
          axis.text  = element_text( size  = 20,
-                                    angle = 90) ) + 
+                                    angle = 0) ) + 
   ggsave('results/climate/anomalies_vs_year.tiff',
          width=12,height=5,compression='lzw')
+
+
+clim_mo %>% 
+  subset( measure != 'oni_t0' ) %>% 
+  subset( grepl('_t0$',measure) ) %>%
+  mutate( measure = replace(measure, measure=='tmp_t0',
+                            'Temperature') ) %>% 
+  mutate( measure = replace(measure, measure=='ppt_t0',
+                            'Precipitation') ) %>% 
+  mutate( measure = replace(measure, measure=='spei_t0',
+                            'Aridity I.') ) %>% 
+  ggplot( aes(x=year, 
+              y=value) ) +
+  geom_line( aes(color=measure),
+             lwd = 2 ) + 
+  scale_color_viridis_d() +
+  ylab( 'Anomaly' ) + 
+  xlab( 'Year' ) +
+  geom_vline( xintercept = 2006,
+              lty  = 2) + 
+  theme( axis.title = element_text( size = 20),
+         axis.text  = element_text( size  = 20,
+                                    angle = 0) ) + 
+  ggsave('results/climate/anomalies_vs_year_noOni.tiff',
+         width=12,height=5,compression='lzw')
   
+
 
 # 
 p1 <- clim_mo %>% 
