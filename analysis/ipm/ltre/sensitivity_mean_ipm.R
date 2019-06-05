@@ -470,5 +470,16 @@ ggplot(sens_df) +
           width=6.3,height=6.3,compression='lzw')
 
 
-
+# only plot elasticity
+subset(sens_df, measure == 'elasticity') %>% 
+  ggplot() +
+  geom_bar( aes( x = parameter,
+                 y = value ),
+                 stat = 'identity') +
+  theme( axis.text.x = element_text( angle = 80,
+                                     vjust = 0.5) ) +
+  ylab( 'Elasticity') + 
+  xlab( 'Parameter' ) +
+  ggsave( 'results/ipm/ltre/elast.tiff',
+          width=6.3,height=6.3,compression='lzw')
 
