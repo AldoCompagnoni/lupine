@@ -1,4 +1,4 @@
-# IPM from data
+# Stochastic LTRE: lam_s ~ temp. anomaly
 rm(list=ls())
 source("analysis/format_data/format_functions.R")
 source('analysis/vital_rates/plot_binned_prop.R')
@@ -25,7 +25,7 @@ enso        <- read.csv("data/enso_data.csv")
 germ        <- read_xlsx('data/seedbaskets.xlsx') %>% 
                  select(g0:g2) %>% 
                  colMeans
-
+germ_adj    <- read.csv('results/ml_mod_sel/germ/germ_adj.csv')
 
 # format climate data ----------------------------------------
 years     <- c(2005:2018)
@@ -160,13 +160,17 @@ germ_df     <- site_df %>%
                  select( location ) %>%
                  unique %>% 
                  arrange( location ) %>% 
-                 mutate( germ_obs = c(mean(c(0.03398254,0.02863250)),
-                                      0.03398254,
-                                      mean(c(0.01553166,0.01564621)),
-                                      0.01553166,
-                                      0.01564621,
-                                      0.02593996,
-                                      0.02863250) ) %>% 
+                 left_join(germ_adj) %>% 
+                 # create germ_obs for AL (1)
+                 mutate( germ_obs = replace( germ_obs, 
+                                             location == 'AL (1)',
+                                             mean(germ_obs[location %in% c('ATT (8)',
+                                                                           'POP9 (9)')])) ) %>% 
+                 # create germ_obs for BR (6)
+                 mutate( germ_obs = replace( germ_obs, 
+                                             location == 'BR (6)',
+                                             mean(germ_obs[location %in% c('BS (7)',
+                                                                           'DR (3)')])) ) %>%   
                  # post-dispersal predation
                  mutate( post_d_p = (germ['g0'] - germ_obs) / germ['g0'] ) %>% 
                  # add germination rats
@@ -213,7 +217,7 @@ fert_p    <- fixef(mod_fr)
 size_sl_p <- sl_size
 fr_rac_p  <- coef(fr_rac) %>% exp
 seed_fr_p <- coef(seed_fr) %>% exp
-germ_p    <- germ * (1 - 0.43) # post-dispersal predation
+germ_p    <- germ * (1 - 0.43) # Old post-dispersal predation estimate
 
 
 # IPM parameters -------------------------------------------------------------
@@ -253,13 +257,9 @@ pars_mean   <- list( # adults vital rates
                      recr_sz      = size_sl_p$mean_sl_size,
                      recr_sd      = size_sl_p$sd_sl_size,
                      
-                     L_sl         = size_sl_p$min_sl_size,
-                     U_sl         = size_sl_p$max_sl_size,
-                     
                      L            = g_lim[1],
                      U            = g_lim[2],
                      
-                     mat_siz_sl = 100,
                      mat_siz    = 100 )
 
 # test that no NAs present
@@ -594,8 +594,6 @@ lam_stoch <- function(tmp_anom, loc, vr){
 
 # test stochasticity
 lamS_noClim <- lam_stoch(0,loc_v[3],'all')
-
-update_par(2005, loc_v[3], 'all') 
 
 # set up climate covariates
 clim_x <- seq( min(clim_mat$tmp_tm1),
