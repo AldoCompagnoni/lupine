@@ -1,7 +1,8 @@
 # 1. Load in all data and Bayesian model results
 # 2. Set up data frames for year-by-site plots 
 # 3. Compute predictions 
-# 4. Plot data and model results
+# 4. Plot site/year data and model results
+# 5. Plot "average" plots with posteriors
 rm(list=ls())
 source("analysis/format_data/format_functions.R")
 source('analysis/vital_rates/plot_binned_prop.R')
@@ -69,7 +70,7 @@ surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
                   left_join( clim_mat ) %>% 
                   select( location, year, newid,
                           log_area_t0, log_area_t02, log_area_t03,
-                          surv_t1, tmp_t0 )
+                          surv_t1, tmp_t0, tmp_tm1 )
 
 grow        <- lupine_df %>% 
                   # remove sleedings at stage_t0
@@ -352,7 +353,8 @@ fert_df <- left_join(fert_pred_df, r_pars_df) %>%
               mutate( yhat  = exp(y_raw) )
  
 
-# plots ---------------------------------------------------------
+# 4. Plot site/year data and model results ---------------------------
+
 
 # survival
 ggplot(data  = surv_df, 
@@ -445,8 +447,8 @@ ggplot(data  = flow_df,
   ggsave(filename = "results/vital_rates/fert_bayes.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
-         
-
+        
+ 
 # fertility
 ggplot(data  = fert_pan_df, 
        aes(x = log_area_t0, 
@@ -478,3 +480,119 @@ ggplot(data  = fert_pan_df,
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
 
+
+# 5. Plot "average" plots with posteriors -------------------------------
+
+
+tiff('results/vital_rates/bayes/vr_posterior.tiff',
+     unit='in',res=300,height=6.3,width=6.3,compression='lzw')
+
+par(mfrow=c(2,2),mar=c(3,3,0.1,0.1),mgp=c(1.6,0.5,0))
+
+# extract data frame of mean parameters
+mean_pars <- function(x){
+  
+  as.matrix(x) %>% 
+      as.data.frame() %>% 
+      setNames( colnames( as.matrix(x)) ) %>% 
+      setNames( gsub('\\[','_',names(.)) ) %>% 
+      setNames( gsub('\\]','', names(.)) )  
+
+}
+
+# survival
+
+# all time
+all_pars <- mean_pars(fit_mod)[round(seq(1,6000,length.out = 100),0),]
+x_seq    <- seq( min(surv$log_area_t0),
+                 max(surv$log_area_t0), length.out=20)
+
+plot_binned_prop(surv, 10, log_area_t0, surv_t1)
+
+# draw 100 posterior samples
+draw_posterior <- function(ii){
+  y_raw    <- (all_pars$a_u_s[ii]*2) + 
+              (all_pars$b_u_s[ii]*2) * x_seq +
+               all_pars$b_s2[ii] * (x_seq^2) +
+               all_pars$b_s3[ii] * (x_seq^3) +
+               all_pars$b_c_s[ii] * mean(surv$tmp_t0)
+  lines(x_seq, boot::inv.logit(y_raw), col='grey' )
+}
+
+sapply(1:100,draw_posterior)
+par(new=TRUE)
+plot_binned_prop(surv, 10, log_area_t0, surv_t1)
+
+
+# Growth
+draw_posterior <- function(ii){
+  abline( a = (all_pars$a_u_g[ii]*2), 
+          b = (all_pars$b_u_g[ii]*2),
+          col = 'grey' )
+}
+
+plot(log_area_t1 ~ log_area_t0, data=grow)
+sapply(1:100,draw_posterior)
+
+
+# Flowering
+draw_posterior <- function(ii){
+  y_raw    <- (all_pars$a_u_f[ii]*2) + 
+              (all_pars$b_u_f[ii]*2) * x_seq +
+               all_pars$b_c_f[ii] * mean(flow$tmp_t0)
+  lines(x_seq, boot::inv.logit(y_raw), col='grey' )
+}
+
+x_seq    <- seq( min(flow$log_area_t0),
+                 max(flow$log_area_t0), length.out=20)
+
+plot_binned_prop(flow, 10, log_area_t0, flow_t0)
+sapply(1:100,draw_posterior)
+par(new=T)
+plot_binned_prop(flow, 10, log_area_t0, flow_t0)
+
+
+
+# Fertility
+draw_posterior <- function(ii){
+  y_raw    <- (all_pars$a_u_r[ii]*2) + 
+              (all_pars$b_u_r[ii]*2) * x_seq +
+               all_pars$b_c_r[ii] * mean(fert$tmp_t0)
+  lines(x_seq, exp(y_raw), col='grey' )
+}
+
+x_seq    <- seq( min(fert$log_area_t0),
+                 max(fert$log_area_t0), length.out=20)
+
+plot(numrac_t0 ~ log_area_t0, data=fert)
+sapply(1:100,draw_posterior)
+par(new=T)
+plot(numrac_t0 ~ log_area_t0, data=fert)
+
+dev.off()
+
+
+mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + 
+                  (1 | year) +     (0 + log_area_t0 | year) +
+                  (1 | location) + (0 + log_area_t0 | location), 
+                  data = surv, family='binomial')
+mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+                  (1 | year) +     (log_area_t0 | year) +
+                  (1 | location) + (log_area_t0 | location), 
+                  data = surv, family='binomial')
+
+
+
+coefs <- mod_s %>% fixef
+
+par(mfrow=c(1,1))
+x_seq    <- seq( min(surv$log_area_t0),
+                 max(surv$log_area_t0), length.out=20)
+plot_binned_prop(surv, 10, log_area_t0, surv_t1)
+
+y_raw    <- coefs[1] + 
+            coefs[2] * (x_seq) +
+            coefs[3] * (x_seq^2) +
+            coefs[4] * (x_seq^3) +
+            coefs[5] * mean(surv$tmp_t0)
+lines(x_seq, boot::inv.logit(y_raw) )
