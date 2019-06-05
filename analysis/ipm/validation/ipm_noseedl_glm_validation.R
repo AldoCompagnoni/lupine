@@ -23,6 +23,10 @@ site_df   <- select(lupine_df,location) %>%
                                   toupper ) 
 
 # set up year/site information 
+att<- data.frame( location = 'ATT (8)',
+                  year     = c(2008:2012) )
+p9 <- data.frame( location = 'POP9 (9)',
+                  year     = c(2008:2014) )
 bs <- data.frame( site_id = 'BS (7)',
                   year    = c(2009:2017) )
 dr <- data.frame( site_id = 'DR (3)',
