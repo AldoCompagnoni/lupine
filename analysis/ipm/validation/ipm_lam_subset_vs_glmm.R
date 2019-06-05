@@ -309,7 +309,7 @@ yr_lambdas <-function(ii){
                 exp( pars$fert_b0 + pars$fert_b1*x )
                 
     # viable racs
-    viab_rac <- tot_rac * (1 - (pars$abort + pars$clip) )
+    viab_rac <- tot_rac * (1 - pars$abort) * (1 - pars$clip)
     # viable seeds
     viab_sd  <- viab_rac * pars$fruit_rac * pars$seed_fruit
     viab_sd
@@ -407,10 +407,20 @@ lam_df <- site_all %>%
             mutate( det_lambda_subset = sapply(ker_sbst_l, 
                                                calc_lam) )
 
+subset(lam_df, year == 2011)
+
 # 2. glmm lambdas ---------------------------------------------
 
 # demographic data
 lupine_df <- read.csv( "data/lupine_all.csv")
+
+germ        <- read_xlsx('data/seedbaskets.xlsx')
+sl_size     <- read.csv('results/ml_mod_sel/size_sl/seedl_size.csv')
+cons_df     <- subset(cons, Year == site_all$year[ii] &
+                            Site == gsub(' \\([0-9]\\)','',site_all$site_id[ii]) )
+abor_df     <- subset(abor, year     == site_all$year[ii] &
+                            location == site_all$site_id[ii])
+
 
 # vital rates format --------------------------------------------------------------
 surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
@@ -476,9 +486,6 @@ seed_fr  <- glm(SEEDSPERFRUIT ~ 1,
 germ_coef<- select(germ, g0:g2) %>% colMeans
 
 # vital rate models 
-surv_sl_p <- fixef(mod_sl)
-grow_sl_p <- coef(mod_g_sl)
-grow_sl_p <- c(grow_sl_p, summary(mod_g_sl)$sigma)
 surv_p    <- fixef(mod_s)
 grow_p    <- fixef(mod_g) 
 grow_p    <- c(grow_p, summary(mod_g)$sigma)
@@ -702,7 +709,7 @@ fx <-function(x,pars){
                          pars$fert_b1*x )
               
   # viable racs
-  viab_rac <- tot_rac * (1- (pars$abort+pars$clip) )
+  viab_rac <- tot_rac * (1- pars$abort) * (1-pars$clip) 
   # viable seeds
   viab_sd  <- viab_rac * pars$fruit_rac * pars$seed_fruit
   return(viab_sd)
@@ -807,8 +814,9 @@ ker_glmm_l <- lapply(1:nrow(site_all), ker_glmm)
 # update data frame
 lam_df <- lam_df %>% 
             mutate( det_lambda_glmm   = sapply(ker_glmm_l, 
-                                               calc_lam) ) %>% 
-            complete( year, site_id ) 
+                                               calc_lam) )  
+
+lam_df <- complete(lam_df, year, site_id ) 
   
 
 
@@ -816,14 +824,11 @@ lam_df <- lam_df %>%
 
 # format for plotting
 lam_df <- lam_df %>% 
-            # gather( type, lambda, 
-            #         det_lambda_subset, 
-            #         det_lambda_glmm ) %>% 
+            gather( type, lambda,
+                    det_lambda_subset,
+                    det_lambda_glmm ) %>%
             mutate( year = as.numeric(as.character(year)) )
             
-
-
-# expand
 
 # put all sites in one plot, plots show type of lambdas
 ggplot(lam_df) +
@@ -858,6 +863,7 @@ ggplot(lam_df) +
          width=6.3, height=9, compression='lzw')
 
 
+# store lambdas in table form
 lam_df %>% 
   spread( year, lambda ) %>% 
   arrange( type, site_id ) %>% 
