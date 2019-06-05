@@ -3,6 +3,7 @@
 # 3. Compute predictions 
 # 4. Plot site/year data and model results
 # 5. Plot "average" plots with posteriors
+# 6. "ribbon" plots with high/low temperature
 rm(list=ls())
 source("analysis/format_data/format_functions.R")
 source('analysis/vital_rates/plot_binned_prop.R')
@@ -572,27 +573,288 @@ plot(numrac_t0 ~ log_area_t0, data=fert)
 dev.off()
 
 
-mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + 
-                  (1 | year) +     (0 + log_area_t0 | year) +
-                  (1 | location) + (0 + log_area_t0 | location), 
-                  data = surv, family='binomial')
-mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
-                  (1 | year) +     (log_area_t0 | year) +
-                  (1 | location) + (log_area_t0 | location), 
-                  data = surv, family='binomial')
 
 
 
-coefs <- mod_s %>% fixef
 
-par(mfrow=c(1,1))
-x_seq    <- seq( min(surv$log_area_t0),
-                 max(surv$log_area_t0), length.out=20)
-plot_binned_prop(surv, 10, log_area_t0, surv_t1)
+# extract data frame of mean parameters
+mean_pars <- function(x){
+  
+  as.matrix(x) %>% 
+      as.data.frame() %>% 
+      setNames( colnames( as.matrix(x)) ) %>% 
+      setNames( gsub('\\[','_',names(.)) ) %>% 
+      setNames( gsub('\\]','', names(.)) )  
 
-y_raw    <- coefs[1] + 
-            coefs[2] * (x_seq) +
-            coefs[3] * (x_seq^2) +
-            coefs[4] * (x_seq^3) +
-            coefs[5] * mean(surv$tmp_t0)
-lines(x_seq, boot::inv.logit(y_raw) )
+}
+
+
+# 6. "ribbon" plots with high/low temperature ---------------
+
+# produce dataframe with binned proportions
+df_binned_prop <- function(df, n_bins, siz_var, rsp_var){
+  
+  size_var <- deparse( substitute(siz_var) )
+  resp_var <- deparse( substitute(rsp_var) )
+  
+  # binned survival probabilities
+  h    <- (max(df[,size_var],na.rm=T) - min(df[,size_var],na.rm=T)) / n_bins
+  lwr  <- min(df[,size_var],na.rm=T) + (h*c(0:(n_bins-1)))
+  upr  <- lwr + h
+  mid  <- lwr + (1/2*h)
+  
+  binned_prop <- function(lwr_x, upr_x, response){
+    
+    id  <- which(df[,size_var] > lwr_x & df[,size_var] < upr_x) 
+    tmp <- df[id,]
+    
+    if( response == 'prob' ){   return( sum(tmp[,resp_var],na.rm=T) / nrow(tmp) ) }
+    if( response == 'n_size' ){ return( nrow(tmp) ) }
+    
+  }
+  
+  y_binned <- Map(binned_prop, lwr, upr, 'prob') %>% unlist
+  x_binned <- mid
+  y_n_size <- Map(binned_prop, lwr, upr, 'n_size') %>% unlist
+  
+  data.frame( x = x_binned, 
+              y = y_binned )
+       
+}
+
+
+
+# Surival
+
+# store 100 posterior sample predictions
+post_pred <- function(ii, tmp_anom ){
+  y_raw    <- (all_pars$a_u_s[ii]*2) + 
+              (all_pars$b_u_s[ii]*2) * x_seq +
+               all_pars$b_s2[ii] * (x_seq^2) +
+               all_pars$b_s3[ii] * (x_seq^3) +
+               all_pars$b_c_s[ii] * tmp_anom
+  
+  data.frame( x     = x_seq,
+              y_hat = boot::inv.logit(y_raw),
+              id    = ii )
+}
+
+# hot and cold temperature
+pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+# plot it all out
+binned_df <- df_binned_prop(surv, 10, log_area_t0, surv_t1) 
+  
+p1 <- ggplot( pred_hot ) +
+  geom_ribbon( aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'red'
+              ) + 
+  ylim( 0, 1 ) +
+  geom_ribbon( data = pred_cold,
+               aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'blue'
+              ) + 
+  geom_point( data = binned_df, 
+              aes(x=x,
+                  y=y) 
+              ) + 
+  labs( y = 'Proportion surviving',
+        x = expression('log(size)'[t]) ) 
+
+
+
+
+# Growth
+
+# store 100 posterior sample predictions
+post_pred <- function(ii, tmp_anom ){
+  y_hat    <- (all_pars$a_u_g[ii]*2) + 
+              (all_pars$b_u_g[ii]*2) * x_seq
+  data.frame( x     = x_seq,
+              y_hat = y_hat,
+              id    = ii )
+}
+
+# hot and cold temperature
+pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+
+p2 <- ggplot( grow ) +
+  geom_point( aes( x = log_area_t0,
+                   y = log_area_t1 ),
+              alpha = 0.2 ) +
+  geom_ribbon( data = pred_hot,
+               aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.8,
+               fill = 'grey'
+              ) +
+  labs( y = expression('log(size)'[t+1]),
+        x = expression('log(size)'[t]) ) 
+
+
+
+  
+# Flowering
+
+# store 100 posterior sample predictions
+post_pred <- function(ii, tmp_anom ){
+  y_raw    <- (all_pars$a_u_f[ii]*2) + 
+              (all_pars$b_u_f[ii]*2) * x_seq +
+               all_pars$b_c_f[ii] * tmp_anom
+  
+  data.frame( x     = x_seq,
+              y_hat = boot::inv.logit(y_raw),
+              id    = ii )
+}
+
+# hot and cold temperature
+pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+# plot it all out
+binned_df <- df_binned_prop(flow, 10, log_area_t0, flow_t0) 
+  
+p3 <- ggplot( pred_hot ) +
+  geom_ribbon( aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'red'
+              ) + 
+  ylim( 0, 1 ) +
+  geom_ribbon( data = pred_cold,
+               aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'blue'
+              ) + 
+  geom_point( data = binned_df, 
+              aes(x=x,
+                  y=y) 
+              ) + 
+  labs( y = 'Proportion flowering',
+        x = expression('log(size)'[t]) ) 
+
+
+
+# Fertility
+
+# store 100 posterior sample predictions
+post_pred <- function(ii, tmp_anom ){
+  y_raw    <- (all_pars$a_u_r[ii]*2) + 
+              (all_pars$b_u_r[ii]*2) * x_seq +
+               all_pars$b_c_r[ii] * tmp_anom
+  
+  data.frame( x     = x_seq,
+              y_hat = exp(y_raw),
+              id    = ii )
+}
+
+# hot and cold temperature
+pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+                bind_rows %>% 
+                group_by( x ) %>% 
+                summarise( y_min = quantile(y_hat, prob = 0.1),
+                           y_max = quantile(y_hat, prob = 0.9) )
+              
+
+p4 <- ggplot( fert ) +
+  geom_point( aes( x = log_area_t0,
+                   y = numrac_t0 ),
+              alpha = 0.2 ) + 
+  geom_ribbon( data = pred_hot,
+               aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'red'
+              ) + 
+  geom_ribbon( data = pred_cold,
+               aes( x    = x, 
+                    ymin = y_min,
+                    ymax = y_max ),
+               alpha = 0.5,
+               fill = 'blue'
+              ) + 
+  labs( y = 'Proportion flowering',
+        x = expression('log(size)'[t]) ) 
+
+
+# save graph!
+out <- gridExtra::grid.arrange(p1,p2,p3,p4, ncol=2) 
+
+ggsave('results/vital_rates/bayes/vr_posterior_ribbon.tiff',
+        out, width=6.3, height=6.3, compression='lzw')
+
+
+
+# mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + 
+#                   (1 | year) +     (0 + log_area_t0 | year) +
+#                   (1 | location) + (0 + log_area_t0 | location), 
+#                   data = surv, family='binomial')
+# mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+#                   (1 | year) +     (log_area_t0 | year) +
+#                   (1 | location) + (log_area_t0 | location), 
+#                   data = surv, family='binomial')
+# 
+# 
+# 
+# coefs <- mod_s %>% fixef
+# 
+# par(mfrow=c(1,1))
+# x_seq    <- seq( min(surv$log_area_t0),
+#                  max(surv$log_area_t0), length.out=20)
+# plot_binned_prop(surv, 10, log_area_t0, surv_t1)
+# 
+# y_raw    <- coefs[1] + 
+#             coefs[2] * (x_seq) +
+#             coefs[3] * (x_seq^2) +
+#             coefs[4] * (x_seq^3) +
+#             coefs[5] * mean(surv$tmp_t0)
+# lines(x_seq, boot::inv.logit(y_raw) )
+
+
