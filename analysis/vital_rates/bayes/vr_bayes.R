@@ -27,42 +27,76 @@ enso        <- read.csv("data/enso_data.csv")
 # germ_adj    <- read.csv('results/ml_mod_sel/germ/germ_adj.csv')
 
 # format climate data ----------------------------------------
-years     <- c(2005:2018)
+years     <- 1990:2018
 m_obs     <- 5
 m_back    <- 36
 
 # calculate yearly anomalies
-year_anom <- function(x, var){
+year_anom <- function(clim_x, clim_var = "ppt", 
+                      years, m_back, m_obs ){
   
-  # set names of climate variables
-  clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
+  # "spread" the 12 months
+  clim_m <- select(clim_x, -clim_var )
   
-  mutate(x, 
-         avgt0     = x %>% select(V1:V12) %>% rowSums,
-         avgtm1    = x %>% select(V13:V24) %>% rowSums,
-         avgt0_tm1 = x %>% select(V1:V24) %>% rowSums,
-         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>% 
-    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>% 
-    setNames( c('year',clim_names) )
+  # select temporal extent
+  clim_back <- function(yrz, m_obs, dat){
+    id <- which(dat$year == yrz & dat$month_num == m_obs)
+    r  <- c( id:(id - (m_back-1)) )
+    return(dat[r,"clim_value"])
+  }
+  
+  # climate data in matrix form 
+  year_by_month_mat <- function(dat, years){
+    do.call(rbind, dat) %>% 
+      as.data.frame %>%
+      tibble::add_column(year = years, .before=1)
+  }
+  
+  # calculate monthly precipitation values
+  clim_x_l  <- lapply(years, clim_back, m_obs, clim_m)
+  x_clim    <- year_by_month_mat(clim_x_l, years) %>% 
+                  gather(month,t0,V1:V12) %>% 
+                  select(year,month,t0) %>% 
+                  mutate( month = gsub('V','',month) ) %>%
+                  mutate( month = as.numeric(month) )
+  
+  if( clim_var == 'ppt'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( ppt_t0 = sum(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( ppt_t0  = scale(ppt_t0)[,1] ) %>% 
+                mutate( ppt_tm1 = lag(ppt_t0) )
+  }
+  if( clim_var == 'tmp'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( tmp_t0 = mean(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( tmp_t0  = scale(tmp_t0)[,1] ) %>% 
+                mutate( tmp_tm1 = lag(tmp_t0) )
+  }
+  
+  raw_df
   
 }
 
 # format climate - need to select climate predictor first 
 ppt_mat <- subset(clim, clim_var == "ppt") %>%
-              prism_clim_form("precip", years, m_back, m_obs) %>% 
-              year_anom('ppt')
+              year_anom("ppt", years, m_back, m_obs)
 
-tmp_mat <- subset(clim, clim_var == 'tmean') %>% 
-              prism_clim_form('tmean', years, m_back, m_obs) %>% 
-              year_anom('tmp')
+tmp_mat <- subset(clim, clim_var == 'tmean')  %>% 
+              year_anom("tmp", years, m_back, m_obs) 
   
-enso_mat <- subset(enso, clim_var == 'oni' ) %>%
-              month_clim_form('oni', years, m_back, m_obs) %>% 
-              year_anom('oni')
+# enso_mat <- subset(enso, clim_var == 'oni' ) %>%
+#               month_clim_form('oni', years, m_back, m_obs) %>% 
+#               year_anom('oni')
 
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
+                    list(ppt_mat, tmp_mat) )
 
 
 # vital rates format --------------------------------------------------------------
@@ -113,7 +147,7 @@ fert        <- subset(lupine_df, flow_t0 == 1 ) %>%
 vr_all <- Reduce( function(...) full_join(...), list( surv, grow,
                                                       flow, fert) )
 
-
+# data for stan model
 dat_stan <- list(
   N_S   = nrow(surv), 
   N_G   = nrow(grow), 
