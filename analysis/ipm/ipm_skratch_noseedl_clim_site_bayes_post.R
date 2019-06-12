@@ -29,42 +29,72 @@ germ_adj    <- read.csv('results/ml_mod_sel/germ/germ_adj.csv')
 fit         <- readRDS('results/vital_rates/bayes/lupine_allvr_annual_anom.rds')
 
 # format climate data ----------------------------------------
-years     <- c(2005:2018)
+years     <- 1990:2018
 m_obs     <- 5
 m_back    <- 36
 
 # calculate yearly anomalies
-year_anom <- function(x, var){
+year_anom <- function(clim_x, clim_var = "ppt", 
+                      years, m_back, m_obs ){
   
-  # set names of climate variables
-  clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
+  # "spread" the 12 months
+  clim_m <- select(clim_x, -clim_var )
   
-  mutate(x, 
-         avgt0     = x %>% select(V1:V12) %>% rowSums,
-         avgtm1    = x %>% select(V13:V24) %>% rowSums,
-         avgt0_tm1 = x %>% select(V1:V24) %>% rowSums,
-         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>% 
-    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>% 
-    setNames( c('year',clim_names) )
+  # select temporal extent
+  clim_back <- function(yrz, m_obs, dat){
+    id <- which(dat$year == yrz & dat$month_num == m_obs)
+    r  <- c( id:(id - (m_back-1)) )
+    return(dat[r,"clim_value"])
+  }
+  
+  # climate data in matrix form 
+  year_by_month_mat <- function(dat, years){
+    do.call(rbind, dat) %>% 
+      as.data.frame %>%
+      tibble::add_column(year = years, .before=1)
+  }
+  
+  # calculate monthly precipitation values
+  clim_x_l  <- lapply(years, clim_back, m_obs, clim_m)
+  x_clim    <- year_by_month_mat(clim_x_l, years) %>% 
+                  gather(month,t0,V1:V12) %>% 
+                  select(year,month,t0) %>% 
+                  mutate( month = gsub('V','',month) ) %>%
+                  mutate( month = as.numeric(month) )
+  
+  if( clim_var == 'ppt'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( ppt_t0 = sum(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( ppt_t0  = scale(ppt_t0)[,1] ) %>% 
+                mutate( ppt_tm1 = lag(ppt_t0) )
+  }
+  if( clim_var == 'tmp'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( tmp_t0 = mean(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( tmp_t0  = scale(tmp_t0)[,1] ) %>% 
+                mutate( tmp_tm1 = lag(tmp_t0) )
+  }
+  
+  raw_df
   
 }
 
 # format climate - need to select climate predictor first 
 ppt_mat <- subset(clim, clim_var == "ppt") %>%
-              prism_clim_form("precip", years, m_back, m_obs) %>% 
-              year_anom('ppt')
+              year_anom("ppt", years, m_back, m_obs)
 
-tmp_mat <- subset(clim, clim_var == 'tmean') %>% 
-              prism_clim_form('tmean', years, m_back, m_obs) %>% 
-              year_anom('tmp')
+tmp_mat <- subset(clim, clim_var == 'tmean')  %>% 
+              year_anom("tmp", years, m_back, m_obs) 
   
-enso_mat <- subset(enso, clim_var == 'oni' ) %>%
-              month_clim_form('oni', years, m_back, m_obs) %>% 
-              year_anom('oni')
-
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
+                    list(ppt_mat, tmp_mat) )
 
 
 # vital rates format --------------------------------------------------------------
@@ -237,12 +267,12 @@ pars_mean   <- list( # adults vital rates
                      grow_b1      = mean(all_vr$b_u_g)*2,
                      grow_sig     = summary(mod_g)$sigma,
 
-                     flow_b0      = mean(all_vr$a_u_g)*2,
-                     flow_b1      = mean(all_vr$b_u_g)*2,
+                     flow_b0      = mean(all_vr$a_u_f)*2,
+                     flow_b1      = mean(all_vr$b_u_f)*2,
                      flow_clim    = mean(all_vr$b_c_f),
                      
-                     fert_b0      = mean(all_vr$a_u_g)*2,
-                     fert_b1      = mean(all_vr$b_u_g)*2,
+                     fert_b0      = mean(all_vr$a_u_r)*2,
+                     fert_b1      = mean(all_vr$b_u_r)*2,
                      fert_clim    = mean(all_vr$b_c_r),
                      
                      abort        = 0.22, # hardcoded for now!
@@ -272,8 +302,8 @@ expect_equal(pars_mean %>%
                sum, 0)
 
 
-# FOR SIMULATIONS: update with year- and loc-specific parameters 
-update_par <- function(year_n, loc_n){
+# For stochastic sims with MEAN PARAMETERS
+update_mean_par <- function(year_n, loc_n){
   
   pars_sim <- pars_mean
   
@@ -357,9 +387,9 @@ update_par <- function(year_n, loc_n){
 }
 
 # test function
-update_par(2010,"POP9 (9)")$abor
-update_par(2010,"ATT (8)")$g0
-update_par(2010,"POP9 (9)")$g2
+update_mean_par(2010,"POP9 (9)")$abor
+update_mean_par(2010,"ATT (8)")$g0
+update_mean_par(2010,"POP9 (9)")$g2
 
 
 
@@ -604,10 +634,54 @@ set.seed(1776)
 yr_seq    <- sample(yrs,it,replace=T)
 yr_i      <- yr_seq - 2004
 ker_siz   <- (pars_mean$mat_siz)+2
+clim_x    <- seq( min(clim_mat$tmp_t0),
+                  max(clim_mat$tmp_t0), 
+                  length.out = 10 )
 
 
-# calculate stochastic lambda for each climate anomaly
-lam_stoch <- function(tmp_anom, loc_n, sim_ii){
+# compute stochastic lambda with MEAN parameters
+lam_stoch_mean <- function(tmp_anom, loc_n){
+
+  # store kernels
+  ker_l     <- list()
+  for(ii in seq_along(yrs)){
+    ker_l[[ii]] <- kernel( tmp_anom, 
+                           update_mean_par(yrs[ii], loc_n) )
+  }
+
+  # placeholders
+  n0        <- rep(1/ker_siz,ker_siz)
+  r_v       <- rep(0,it)
+
+  # stochastic simulations
+  for(ii in 1:it){
+    
+    #Store kernel
+    ker     <- ker_l[[yr_i[ii]]]
+    # ker     <- kernel(tmp_anom,update_par(yrs[yr_i[ii]]))
+    
+    # expect_true( all.equal(ker1,ker) )
+    
+    # calculate lambdas
+    n0      <- ker %*% n0
+    N       <- sum(n0)
+    r_v[ii] <- log(N)
+    n0      <- n0/N
+  
+  }
+
+  r_v[-c(1:1000)] %>% mean %>% exp
+  
+}
+
+# mean lambdas
+mean_lam_df <- data.frame( clim_x   = clim_x,
+                           lam_mean = sapply(clim_x, lam_stoch_mean, loc_v[4]) 
+                           )
+  
+
+# compute stochastic lambda with SEPARATE POSTERIOR SAMPLES
+lam_stoch_post <- function(tmp_anom, loc_n, sim_ii){
 
   # store kernels
   ker_l     <- list()
@@ -641,13 +715,7 @@ lam_stoch <- function(tmp_anom, loc_n, sim_ii){
 }
 
 # test stochasticity
-lamS_noClim <- lam_stoch(0,loc_v[3], 90)
-
-# set up climate covariates
-clim_x <- seq( min(clim_mat$tmp_tm1),
-               max(clim_mat$tmp_tm1), 
-               length.out = 10 )
-
+lam_stoch(0,loc_v[4], 90)
 
 # grid of simulation runs
 sim_df  <- expand.grid( clim_x = clim_x,
@@ -655,7 +723,7 @@ sim_df  <- expand.grid( clim_x = clim_x,
                         sim_ii = 1:100,
                         stringsAsFactors = F )
 
-# run 
+# simulate across rows of sim_df
 stoch_sim_post <- function(ii){
   
   lam_s <- lam_stoch(sim_df$clim_x[ii],
@@ -674,74 +742,29 @@ sim_df <- subset(sim_df, loc_n == 'BS (7)')
 test_l  <- lapply(1:nrow(sim_df), stoch_sim_post)
 test_df <- bind_rows( test_l )
 
-
-
-# 
+# calculate maximum/mean/minimum values
 lam_plot_df <- test_df %>% 
                 group_by(clim_x, loc_n) %>% 
-                summarise( lam_min = min(lam),
-                           lam_max = max(lam) )
+                summarise( lam_min  = min(lam),
+                           lam_max  = max(lam) ) %>% 
+                ungroup
 
-# 
+# plot results
 ggplot(lam_plot_df) +
   geom_ribbon( aes( x    = clim_x, 
                     ymin = lam_min,
                     ymax = lam_max ),
                alpha = 0.5,
-               fill = 'blue' )
+               fill = 'blue' ) +
+  geom_line(  data = mean_lam_df,
+              aes( x    = clim_x,
+                   y    = lam_mean),
+              lwd = 1.5 ) +
+  geom_hline( yintercept = 1, lty = 2 ) +
+  ylab( expression(lambda[s]) ) +
+  ggsave('results/ipm/lambdaS_vs_site_clim_noseedl_post.tiff',
+         width=6.3,height=6.3,compression='lzw')
 
-
-
-
-lam_stoch <- function(tmp_anom, loc, ii){
-
-  par_list <- update_par_post(yrs[ii],loc,ii)
-  par_list
-  
-  # store kernels
-  ker_l     <- list()
-  for(ii in seq_along(yrs)){
-    ker_l[[ii]] <- kernel(tmp_anom,par_list)
-  }
-
-  sapply(ker_l, get_lambda)
-
-}
-
-ii=1
-parz <- lam_stoch(sim_df$clim_x[ii],
-          sim_df$loc_n[ii],
-          sim_df$sim_ii[ii])
-
-kernel(0,parz) %>% get_lambda
-
-
-# cycle through the different locations
-for(li in 1:length(loc_v)){ #
-  lam_s_vec     <- sapply(clim_x, lam_stoch, loc_v[li])
-  lam_s_l[[li]] <- data.frame( climate_anomaly   = clim_x,
-                                lam_s            = lam_s_vec,
-                                location         = loc_v[li],
-                                stringsAsFactors = F)
-}
-
-#4,5,7
-lam_s_df <- bind_rows( lam_s_l ) %>% 
-              mutate( location = as.factor(location) )
-
-
-# lambdaS_vs_clim
-ggplot(lam_s_df, aes(climate_anomaly, lam_s) ) +
-  geom_line( aes(color = location ),
-             size = 1 ) + 
-  viridis::scale_color_viridis( discrete=T ) + 
-  geom_hline( yintercept = 1,
-              linetype   = 2 ) + 
-  ylab( expression(lambda['s']) ) + 
-  xlab( 'Climate anomaly' ) +
-  theme( axis.title = element_text( size = 30) ) + 
-  ggsave('results/ipm/lambdaS_vs_site_clim_noseedl.tiff',
-          width = 6.3, height = 5, compression = 'lzw' )
 
 
 
