@@ -5,6 +5,7 @@ library(testthat)
 library(rstan)
 library(rstanarm)
 library(lme4)
+library(ggthemes)
 library(bbmle)
 library(gridExtra)
 options(stringsAsFactors = F)
@@ -130,12 +131,18 @@ ppt_yr <- subset(clim, clim_var == "ppt") %>%
 tmp_yr <- subset(clim, clim_var == 'tmean') %>% 
               yr_anom("tmp", years, m_back, m_obs, T) 
 
+oni_yr <- enso_mo %>% 
+              mutate( oni_anom  = oni_t0/12 )
+
+spei_yr<- spei_mo %>% 
+              mutate( spei_anom = spei_t0/12 )
+
 # put together all climate
 clim_yr <- Reduce( function(...) full_join(...),
-                   list(ppt_yr,tmp_yr) ) %>% 
-              gather(measure, value, ppt_anom:tmp_anom)
-
-
+                   list(ppt_yr, tmp_yr, 
+                        oni_yr, spei_yr) ) %>% 
+              dplyr::select(-oni_t0, -spei_t0 ) %>% 
+              gather(measure, value, ppt_anom:spei_anom)
 
 # Plots ----------------------------------------------
 
@@ -176,7 +183,7 @@ clim_mo %>%
   xlab( 'Year' ) +
   geom_vline( xintercept = 2006,
               lty  = 2) + 
-  theme( axis.title = element_text( size = 20),
+  theme( axis.title = element_text( size  = 20),
          axis.text  = element_text( size  = 20,
                                     angle = 0) ) + 
   ggsave('results/climate/anomalies_vs_year_noOni.tiff',
@@ -304,3 +311,31 @@ ggsave(filename = 'results/climate/anom_hist.tiff',
        plot = g,
        dpi = 300, width = 8, height = 6, units = "in",
        compression = 'lzw')
+
+
+# Final figure with only annual anomalies -----------------------------------
+
+# convert 
+clim_yr %>% 
+  mutate( measure = replace(measure, measure=='tmp_anom',
+                            'Temperature') ) %>% 
+  mutate( measure = replace(measure, measure=='ppt_anom',
+                            'Precipitation') ) %>% 
+  mutate( measure = replace(measure, measure=='spei_anom',
+                            'Aridity I.') ) %>% 
+  mutate( measure = replace(measure, measure=='oni_anom',
+                            'ONI') ) %>% 
+  ggplot( aes(x=year, 
+              y=value) ) +
+  geom_line( aes(color=measure),
+             lwd = 2 ) + 
+  scale_colour_colorblind() + 
+  ylab( 'Yearly anomaly' ) + 
+  xlab( 'Year' ) +
+  geom_vline( xintercept = 2006,
+              lty  = 2 ) + 
+  theme( axis.title = element_text( size = 20),
+         axis.text  = element_text( size  = 20,
+                                    angle = 0) ) + 
+  ggsave('results/climate/yr_anom_vs_year.tiff', 
+         width=12, height=5, compression = 'lzw')
