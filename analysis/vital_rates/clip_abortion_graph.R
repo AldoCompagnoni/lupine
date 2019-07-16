@@ -6,6 +6,7 @@ options(stringsAsFactors = F)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(ggthemes)
 library(readxl)
 library(testthat)
 library(bbmle)
@@ -43,7 +44,8 @@ abor_df  <- read.csv('data/lupine_all.csv') %>%
                 # calculate abortion rates
                 mutate( ab_r      = numab_t0 / numrac_t0 ) %>% 
                 group_by( location, year ) %>% 
-                summarise( ab_r_m = mean(ab_r, na.rm=T) ) %>% 
+                summarise( ab_r_m  = mean(ab_r, na.rm=T),
+                           rep_ind = n() ) %>% 
                 ungroup %>% 
                 right_join( site_yr_df ) %>% 
                 select( -Site )
@@ -62,10 +64,69 @@ ggplot(ab_cons_df) +
              size=2,
              alpha=0.8) +
   scale_x_continuous(breaks = 0:2100) +
-  scale_color_viridis_d() + 
+  scale_colour_colorblind() + 
   ylab( 'Proportion of racemes' ) +
   theme( axis.text.x = element_text(angle=70) ) + 
   facet_grid( measure ~ 1 ) +
   ggsave('results/vital_rates/abort_consumption.tiff',
          height=6.3,width=6.3,compression='lzw')
     
+
+# abortion 
+abor_tot_df  <- read.csv('data/lupine_all.csv') %>% 
+                  subset( !is.na(flow_t0) & flow_t0 == 1 ) %>% 
+                  subset( !is.na(numrac_t0) ) %>% 
+                  # remove non-flowering individuals
+                  subset( !(flow_t0 %in% 0) ) %>% 
+                  # remove zero fertility (becase fertility should not be 0)
+                  subset( !(numrac_t0 %in% 0) ) %>% 
+                  # only years indicated by Tiffany
+                  subset( year %in% c(2010, 2011, 2013:2017) ) %>% 
+                  
+                  group_by( location, year ) %>% 
+                  # calculate abortion rates
+                  summarise( tot_ab_t0  = sum(numab_t0,  na.rm=T),
+                             tot_rac_t0 = sum(numrac_t0, na.rm=T),
+                             rep_tot    = n() ) %>% 
+                  ungroup %>% 
+                  mutate( ab_r_tot = tot_ab_t0 / tot_rac_t0 )
+                
+
+abor_ctrl <- full_join( abor_df, abor_tot_df ) %>% 
+                select(-tot_ab_t0, -tot_rac_t0, -rep_tot, -rep_ind ) %>% 
+                rename( ab_r_ind = ab_r_m ) %>% 
+                gather( measure, value, ab_r_ind:ab_r_tot ) %>% 
+                subset( year > 2009 & year < 2018 )
+
+
+# compare two methods to calculate abortion rates
+ggplot(abor_ctrl) +
+  geom_line( aes(x     = year, 
+                 y     = value, 
+                 lty   = measure,
+                 color = location),
+             lwd = 1.5,
+             alpha = 0.8) +
+  scale_colour_colorblind() +
+  ggsave( 'results/vital_rates/abort_indiv_vs_tot.tiff', 
+          height=3,width=6.3,compression='lzw' )
+
+
+# store abortion rates, with sample sizes, calculated with "total mean"
+select(abor_tot_df, year, location, ab_r_tot, rep_tot) %>% 
+  mutate( ab_r_tot = round(ab_r_tot, 3) ) %>% 
+  mutate( ab_lab   = paste0(ab_r_tot,' (',rep_tot,')') ) %>% 
+  select( year, location, ab_lab ) %>% 
+  spread( year, ab_lab ) %>% 
+  write.csv( 'results/vital_rates/abor_rates_tot_rep.csv',
+             row.names=F)
+
+# store abortion rates, with sample sizes, calculated with "individual mean"
+select(abor_df, year, location, ab_r_m, rep_ind) %>%
+  subset( year %in% c(2010,2011,2013,2014,2015,2016,2017) ) %>% 
+  mutate( ab_r_m = round(ab_r_m, 3) ) %>% 
+  mutate( ab_lab = paste0(ab_r_m,' (',rep_ind,')') ) %>% 
+  select( year, location, ab_lab ) %>% 
+  spread( year, ab_lab ) %>% 
+  write.csv( 'results/vital_rates/abor_rates_ind_rep.csv',
+             row.names=F)
