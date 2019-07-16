@@ -4,6 +4,7 @@
 #    at end of climate time series)
 library(dplyr)
 library(tidyr)
+library(SPEI)
 options(stringsAsFactors = F)
 
 #1. format prism data -------------------------------------------------------------------------
