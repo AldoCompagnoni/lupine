@@ -11,6 +11,7 @@ library(dplyr)
 library(tidyr)
 library(mgcv)
 library(ggplot2)
+library(ggthemes)
 library(readxl)
 library(testthat)
 library(lme4)
@@ -32,42 +33,75 @@ germ        <- read_xlsx('data/seedbaskets.xlsx') %>%
 germ_adj    <- read.csv('results/ml_mod_sel/germ/germ_adj.csv')
 
 # format climate data ----------------------------------------
-years     <- c(2005:2018)
+years     <- 1990:2018
 m_obs     <- 5
 m_back    <- 36
 
 # calculate yearly anomalies
-year_anom <- function(x, var){
+year_anom <- function(clim_x, clim_var = "ppt", 
+                      years, m_back, m_obs ){
   
-  # set names of climate variables
-  clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
+  # "spread" the 12 months
+  clim_m <- select(clim_x, -clim_var )
   
-  mutate(x, 
-         avgt0     = x %>% select(V1:V12) %>% rowSums,
-         avgtm1    = x %>% select(V13:V24) %>% rowSums,
-         avgt0_tm1 = x %>% select(V1:V24) %>% rowSums,
-         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>% 
-    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>% 
-    setNames( c('year',clim_names) )
+  # select temporal extent
+  clim_back <- function(yrz, m_obs, dat){
+    id <- which(dat$year == yrz & dat$month_num == m_obs)
+    r  <- c( id:(id - (m_back-1)) )
+    return(dat[r,"clim_value"])
+  }
+  
+  # climate data in matrix form 
+  year_by_month_mat <- function(dat, years){
+    do.call(rbind, dat) %>% 
+      as.data.frame %>%
+      tibble::add_column(year = years, .before=1)
+  }
+  
+  # calculate monthly precipitation values
+  clim_x_l  <- lapply(years, clim_back, m_obs, clim_m)
+  x_clim    <- year_by_month_mat(clim_x_l, years) %>% 
+                  gather(month,t0,V1:V12) %>% 
+                  select(year,month,t0) %>% 
+                  mutate( month = gsub('V','',month) ) %>%
+                  mutate( month = as.numeric(month) )
+  
+  if( clim_var == 'ppt'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( ppt_sum = sum(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( ppt_t0   = scale(ppt_sum)[,1] ) %>% 
+                # add mean and SD (for plots)
+                mutate( ppt_mean = mean(ppt_sum),
+                        ppt_sd   = sd(ppt_sum) )
+  }
+  if( clim_var == 'tmp'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( tmp_ann_mean = mean(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( tmp_t0   = scale(tmp_ann_mean)[,1] ) %>% 
+                mutate( tmp_mean = mean(tmp_ann_mean),
+                        tmp_sd   = sd(tmp_ann_mean) )
+  }
+  
+  raw_df
   
 }
 
 # format climate - need to select climate predictor first 
 ppt_mat <- subset(clim, clim_var == "ppt") %>%
-              prism_clim_form("precip", years, m_back, m_obs) %>% 
-              year_anom('ppt')
+              year_anom("ppt", years, m_back, m_obs)
 
-tmp_mat <- subset(clim, clim_var == 'tmean') %>% 
-              prism_clim_form('tmean', years, m_back, m_obs) %>% 
-              year_anom('tmp')
-  
-enso_mat <- subset(enso, clim_var == 'oni' ) %>%
-              month_clim_form('oni', years, m_back, m_obs) %>% 
-              year_anom('oni')
+tmp_mat <- subset(clim, clim_var == 'tmean')  %>% 
+              year_anom("tmp", years, m_back, m_obs)
 
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
+                    list(ppt_mat,tmp_mat) )
 
 
 # vital rates format --------------------------------------------------------------
@@ -184,7 +218,7 @@ germ_df     <- site_df %>%
 
 
 # models ---------------------------------------------------------
-mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
+mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + 
                   (1 | year) + (0 + log_area_t0 | year) + 
                   (1 | location) + (0 + log_area_t0 | location),
                   data=surv, family='binomial')
@@ -194,11 +228,11 @@ mod_g    <- lmer( log_area_t1 ~ log_area_t0 +
                   data=grow)
 mod_g2   <- lm( log_area_t1 ~ log_area_t0, data=grow) 
 g_lim    <- range( c(grow$log_area_t0, grow$log_area_t1) )
-mod_fl   <- glmer(flow_t0 ~ log_area_t0 + tmp_tm1 + 
+mod_fl   <- glmer(flow_t0 ~ log_area_t0 + tmp_t0 + 
                   (1 | year) + (0 + log_area_t0 | year) +
                   (1 | location) + (0 + log_area_t0 | location),
                   data=flow, family='binomial')
-mod_fr   <- glmer(numrac_t0 ~ log_area_t0 + tmp_tm1 + 
+mod_fr   <- glmer(numrac_t0 ~ log_area_t0 + tmp_t0 + 
                   (1 | year) + (0 + log_area_t0 | year) + 
                   (1 | location) + (0 + log_area_t0 | location), 
                   data=fert, family='poisson')
@@ -376,15 +410,15 @@ update_par <- function(year_n, loc_n, vr){
   
   # update vital rate response to climate
   if( vr == 'surv'){
-    pars_sim$surv_clim  <- surv_p['tmp_tm1'] %>% as.numeric
+    pars_sim$surv_clim  <- surv_p['tmp_t0'] %>% as.numeric
   }
   
   if( vr == 'flow'){
-    pars_sim$flow_clim  <- flow_p['tmp_tm1'] %>% as.numeric
+    pars_sim$flow_clim  <- flow_p['tmp_t0'] %>% as.numeric
   }
   
   if( vr == 'fert'){
-    pars_sim$fert_clim  <- fert_p['tmp_tm1'] %>% as.numeric
+    pars_sim$fert_clim  <- fert_p['tmp_t0'] %>% as.numeric
   }
   
   pars_sim
@@ -580,7 +614,7 @@ lam_stoch <- function(loc, tmp_anom, vr){
 }
 
 # calculate and store stochastic lambdas at climate anomaly == 0
-base_lam_s   <- sapply(loc_v, lam_stoch, 0,'all')
+base_lam_s   <- sapply(loc_v, lam_stoch, 0, 'all')
 lam_base_df  <- data.frame( location   = loc_v,
                             lam_s_base = base_lam_s )
 
@@ -588,8 +622,8 @@ lam_base_df  <- data.frame( location   = loc_v,
 # simulate stochastic lambdas by location, vital rate, and climate anomaly
 
 # climate anomalies
-clim_x <- seq( min(clim_mat$tmp_tm1),
-               max(clim_mat$tmp_tm1), 
+clim_x <- seq( min(clim_mat$tmp_t0),
+               max(clim_mat$tmp_t0), 
                length.out = 10 )
 
 # Data frame for simulations   
@@ -602,7 +636,7 @@ sim_df <- expand.grid( clim_x   = clim_x,
 lam_s_l <- list()
 
 # perform a loop for potential debugging
-for(ii in 1:nrow(sim_df)){
+for(ii in 1:nrow(sim_df) ){ #
   
   lam_s_l[ii] <- lam_stoch(sim_df$location[ii],
                            sim_df$clim_x[ii],
@@ -611,11 +645,15 @@ for(ii in 1:nrow(sim_df)){
 }
 
 # put LTRE together 
+t_mean   <- unique(tmp_mat$tmp_mean)
+t_sd     <- unique(tmp_mat$tmp_sd)
 ltre_df  <- sim_df %>% 
               mutate( lam_s    = unlist(lam_s_l) ) %>% 
               left_join(lam_base_df) %>% 
               mutate( lam_diff = lam_s - lam_s_base ) %>% 
-              group_by( vr, clim_x ) %>% 
+              # absolute temperature
+              mutate( tmp = (clim_x * t_sd) + t_mean ) %>% 
+              group_by( vr, tmp ) %>% 
               summarise( lam_diff_mean = mean(lam_diff) ) %>% 
               ungroup %>% 
               rename( vital_rate = vr )
@@ -623,11 +661,11 @@ ltre_df  <- sim_df %>%
 
 # Plot results 
 ggplot(ltre_df) +
-  geom_line( aes( x     = clim_x,
+  geom_line( aes( x     = tmp,
                   y     = lam_diff_mean,
                   color = vital_rate ),
              size = 1.5) +
-  viridis::scale_color_viridis( discrete=T ) +
+  scale_colour_colorblind() + 
   ylab( expression(partialdiff*lambda[s]*'/'*partialdiff*'temperature') ) +
   xlab( 'Temperature anomaly' ) +
   theme( axis.title   = element_text( size = 20),
