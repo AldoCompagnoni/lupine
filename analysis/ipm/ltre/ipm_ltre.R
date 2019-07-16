@@ -659,9 +659,14 @@ ltre_df  <- sim_df %>%
               rename( vital_rate = vr )
 
 # saveRDS(ltre_df, 'results/ipm/ltre/ltre_df.rds')
+# ltre_df <- readRDS('results/ipm/ltre/ltre_df.rds')
 
 # Plot results 
-ggplot(ltre_df) +
+ltre_df %>% 
+  mutate( vital_rate = gsub('fert','Fertility',vital_rate) ) %>% 
+  mutate( vital_rate = gsub('flow','Flowering',vital_rate) ) %>% 
+  mutate( vital_rate = gsub('surv','Survival',vital_rate) ) %>% 
+  ggplot() +
   geom_line( aes( x     = tmp,
                   y     = lam_diff_mean,
                   color = vital_rate ),
@@ -670,6 +675,8 @@ ggplot(ltre_df) +
   ylab( expression(partialdiff*lambda[s]*'/'*partialdiff*'temperature') ) +
   xlab( 'Annual Temperature (°C)' ) +
   theme( axis.title   = element_text( size = 20),
-         legend.title = element_text( size = 15) ) +
+         legend.title = element_text( size = 15),
+         ) +
+  labs( color = 'Vital rate' ) +
   ggsave('results/ipm/ltre/ltre.tiff',
          width=6.3, height=4,compression='lzw')
