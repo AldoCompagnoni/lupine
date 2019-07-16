@@ -658,6 +658,7 @@ ltre_df  <- sim_df %>%
               ungroup %>% 
               rename( vital_rate = vr )
 
+# saveRDS(ltre_df, 'results/ipm/ltre/ltre_df.rds')
 
 # Plot results 
 ggplot(ltre_df) +
