@@ -667,7 +667,7 @@ ggplot(ltre_df) +
              size = 1.5) +
   scale_colour_colorblind() + 
   ylab( expression(partialdiff*lambda[s]*'/'*partialdiff*'temperature') ) +
-  xlab( 'Temperature anomaly' ) +
+  xlab( 'Annual Temperature (°C)' ) +
   theme( axis.title   = element_text( size = 20),
          legend.title = element_text( size = 15) ) +
   ggsave('results/ipm/ltre/ltre.tiff',
