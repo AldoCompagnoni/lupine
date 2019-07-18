@@ -579,6 +579,7 @@ kernel <- function(tmp_anom, pars){
 ker <- kernel(0,pars_mean)
 Re(eigen(ker)$value[1])
 
+
 # pop-by-year det lambdas ------------------------------------
 
 pop_by_year_df <- expand.grid( pop = lupine_df$location %>% unique %>% sort,
@@ -624,7 +625,8 @@ pop_by_year_plot %>%
          width=6.3, height=4, compression = 'lzw')
   
 
-# stochastic simulations -------------------------------------
+
+# stochastic simulations -------------------------------------------
 
 # sequence of it years (always the same), and total IPM size
 it        <- 50000
@@ -719,7 +721,74 @@ lam_s_df %>%
           width = 6.3, height = 5, compression = 'lzw' )
 
 
-# stochastic both climate and random effects simultaneously -----
+
+
+# combine lambda stochastic with stochastic LTRE ------------------------
+
+lam_s_df <- readRDS( 'results/ipm/lam_s_by_clim_glmm.rds' )
+ltre_df  <- readRDS( 'results/ipm/ltre/ltre_df.rds' )
+
+p1 <- lam_s_df %>% 
+        mutate( location = gsub('\\(|\\)|[0-8]| ','',location)) %>% 
+        mutate( location = gsub('99','9',location) ) %>% 
+        ggplot( aes(tmp, lam_s) ) +
+        geom_line( aes(color = location ),
+                   size = 1 ) + 
+        geom_text( aes(x = 11.1, y = 1.52*0.997, label = 'A)'),
+                       vjust = 0.1) +
+        ylim( 0.5848426, 1.52 ) +
+        scale_colour_colorblind() + 
+        geom_hline( yintercept = 1,
+                    linetype   = 2 ) + 
+        ylab( expression(lambda['s']) ) + 
+        xlab( 'Annual Temperature (°C)' ) +
+        labs( color = 'Population' ) +
+        theme( axis.title   = element_text( size = 10),
+               axis.text   = element_text( size = 7),
+               legend.title = element_text( size = 7),
+               legend.text = element_text( size = 7),
+               legend.margin =  margin(t = 0, r = 10, b = 0, l = 2),
+               legend.box.margin = margin(-10,-10,-10,-10))  
+        
+
+# Plot results 
+p2 <- ltre_df %>% 
+        mutate( vital_rate = gsub('fert','Fertility',vital_rate) ) %>% 
+        mutate( vital_rate = gsub('flow','Flowering',vital_rate) ) %>% 
+        mutate( vital_rate = gsub('surv','Survival',vital_rate) ) %>% 
+        ggplot() +
+        geom_line( aes( x     = tmp,
+                        y     = lam_diff_mean,
+                        color = vital_rate ),
+                   size = 1.5) +
+        ylim( -0.1461789, 0.1244356) + 
+        geom_text( aes(x = 11.1, y = 0.1244356*0.99, label = 'B)'),
+                       vjust = 0.1) +
+        scale_colour_colorblind() + 
+        ylab( expression(partialdiff*lambda[s]*'/'*partialdiff*'temperature') ) +
+        xlab( 'Annual Temperature (°C)' ) +
+        theme( axis.title   = element_text( size = 10),
+               axis.text   = element_text( size = 7),
+               legend.title = element_text( size = 7),
+               legend.text = element_text( size = 7),
+               # legend.position = c(1, 1),
+               # legend.justification = c(0, 2), 
+               legend.margin =  margin(t = 0, r = 10, b = 0, l = 2),
+               legend.box.margin = margin(-10,-10,-10,-10)
+               )  +
+        labs( color = 'Vital rate' )
+
+
+# plot lambdas and ltres together 
+g <- arrangeGrob(p1,p2,nrow=1,ncol=2)
+ggsave(filename = 'results/ipm/lams_ltre.tiff',
+       plot = g,
+       dpi = 600, width = 6.3, height = 2.75, units = "in",
+       compression = 'lzw')
+
+
+
+# stochastic both climate and random effects simultaneously --------
 
 # set up a seed that produces a mean ~ 0 (but negative, to be conservative)
 set.seed(1835)
