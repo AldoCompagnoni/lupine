@@ -7,8 +7,8 @@ library(dplyr)
 library(tidyr)
 library(mgcv)
 library(ggplot2)
-library(readxl)
 library(ggthemes)
+library(readxl)
 library(testthat)
 library(lme4)
 library(lintr)
@@ -579,6 +579,50 @@ kernel <- function(tmp_anom, pars){
 ker <- kernel(0,pars_mean)
 Re(eigen(ker)$value[1])
 
+# pop-by-year det lambdas ------------------------------------
+
+pop_by_year_df <- expand.grid( pop = lupine_df$location %>% unique %>% sort,
+                            year = 2005:2017,
+                            stringsAsFactors = F )
+  
+lambda_pop_by_year <- function(ii){
+
+  par_in <- update_par(pop_by_year_df$year[ii],
+                       pop_by_year_df$pop[ii],
+                       'all')
+  
+  ker <- kernel(0,par_in)
+  Re(eigen(ker)$value[1])
+  
+}
+
+# produce asymptotic lambdas for 
+lam_pop_by_year_v <- sapply(1:nrow(pop_by_year_df), lambda_pop_by_year)
+
+pop_by_year_plot <- pop_by_year_df %>% 
+                      mutate( lambda = lam_pop_by_year_v ) %>% 
+                      subset( !(year %in% c(2005:2007) & !(pop %in% c('AL (1)','ATT (8)'))) ) %>% 
+                      mutate( pop = gsub('\\(|\\)|[0-8]| ','',pop)) %>% 
+                      mutate( pop = gsub('99','9',pop) )
+
+pop_by_year_plot %>% 
+  subset( year = as.character(year) ) %>% 
+  ggplot() +
+  geom_line( aes(x = year, 
+                 y = lambda,
+                 color = pop),
+             lwd = 2 ) +
+  scale_color_colorblind() +
+  ylab( expression(lambda) ) +
+  xlab( 'Year' ) +
+  scale_x_continuous( breaks = c(2005, 2009,2013, 2017),
+                      labels = c(2005, 2009,2013, 2017)
+                      ) +
+  theme( axis.title = element_text( size = 15) ) +
+  labs(color = 'Population' ) +
+  ggsave('results/ipm/lambda_vs_year_pop.tiff',
+         width=6.3, height=4, compression = 'lzw')
+  
 
 # stochastic simulations -------------------------------------
 
