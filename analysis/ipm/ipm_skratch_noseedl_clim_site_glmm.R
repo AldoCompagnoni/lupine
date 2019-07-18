@@ -697,11 +697,15 @@ lam_s_df <- bind_rows( lam_s_l ) %>%
               # absolute temperature
               mutate( tmp = (climate_anomaly * t_sd) + t_mean )
 
-
-
+# save to plot more rapidly
+# saveRDS( lam_s_df, 'results/ipm/lam_s_by_clim_glmm.rds')
+# readRDS( 'results/ipm/lam_s_by_clim_glmm.rds')
 
 # lambdaS_vs_clim
-ggplot(lam_s_df, aes(tmp, lam_s) ) +
+lam_s_df %>% 
+  mutate( location = gsub('\\(|\\)|[0-8]| ','',location)) %>% 
+  mutate( location = gsub('99','9',location) ) %>% 
+  ggplot( aes(tmp, lam_s) ) +
   geom_line( aes(color = location ),
              size = 1 ) + 
   scale_colour_colorblind() + 
@@ -709,10 +713,10 @@ ggplot(lam_s_df, aes(tmp, lam_s) ) +
               linetype   = 2 ) + 
   ylab( expression(lambda['s']) ) + 
   xlab( 'Annual Temperature (°C)' ) +
+  labs( color = 'Population' ) +
   theme( axis.title = element_text( size = 20) ) + 
   ggsave('results/ipm/lambdaS_vs_site_clim_noseedl.tiff',
           width = 6.3, height = 5, compression = 'lzw' )
-
 
 
 # stochastic both climate and random effects simultaneously -----
