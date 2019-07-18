@@ -5,6 +5,7 @@ library(testthat)
 library(rstan)
 library(rstanarm)
 library(lme4)
+library(ggplot2)
 library(ggthemes)
 library(bbmle)
 library(gridExtra)
@@ -146,6 +147,7 @@ clim_yr <- Reduce( function(...) full_join(...),
 
 # Plots ----------------------------------------------
 
+
 # all monthly climate anomalies by year
 clim_mo %>% 
   subset( grepl('_t0$',measure) ) %>% 
@@ -191,7 +193,7 @@ clim_mo %>%
   
 
 
-# 
+# Raw time series versus anomalies ---------------------
 p1 <- clim_mo %>% 
   subset( grepl('ppt_|tmp_',measure) ) %>% 
   ggplot( aes(x=year, 
@@ -262,7 +264,82 @@ ggsave(filename = 'results/climate/raw_yr_mo_anom.tiff',
        compression = 'lzw')
 
  
+# raw time series (all) ---------------------------------------
+
+
+clim_raw %>% names
+clim_yr %>% names
+
+clim_raw_all <- clim_yr %>% 
+                  subset( grepl('oni|spei', measure) ) %>% 
+                  bind_rows( clim_raw )
   
+
+
+p1 <- clim_raw_all %>% 
+        subset( measure == 'tmp_raw' ) %>% 
+        ggplot( aes(x = year, 
+                    y = value) ) +
+        geom_line( lwd = 2,
+                   color = '#E69F00' ) + 
+        scale_colour_colorblind() +
+        ylab( 'Temperature (°C)' ) + 
+        xlab( 'Year' ) +
+        geom_vline( xintercept = 2006,
+                    lty  = 2 ) + 
+        theme( axis.title      = element_text( size = 10),
+               legend.position = 'none' )  
+
+p2 <- clim_raw_all %>% 
+        subset( measure == 'ppt_raw' ) %>% 
+        ggplot( aes(x = year, 
+                    y = value) ) +
+        geom_line( lwd = 2,
+                   color = "#56B4E9" ) + 
+        scale_colour_colorblind() +
+        ylab( 'Precipitation (mm)' ) + 
+        xlab( 'Year' ) +
+        geom_vline( xintercept = 2006,
+                    lty  = 2 ) + 
+        theme( axis.title      = element_text( size = 10),
+               legend.position = 'none' ) 
+
+
+p3 <- clim_raw_all %>% 
+        subset( measure == 'oni_anom' ) %>% 
+        ggplot( aes(x = year, 
+                    y = value) ) +
+        geom_line( lwd = 2,
+                   color = "#009E73" ) + 
+        scale_colour_colorblind() +
+        ylab( 'ONI' ) + 
+        xlab( 'Year' ) +
+        geom_vline( xintercept = 2006,
+                    lty  = 2 ) + 
+        theme( axis.title      = element_text( size = 10),
+               legend.position = 'none' ) 
+
+p4 <- clim_raw_all %>% 
+        subset( measure == 'spei_anom' ) %>% 
+        ggplot( aes(x = year, 
+                    y = value) ) +
+        geom_line( lwd = 2,
+                   color = "#F0E442") + 
+        scale_color_colorblind() +
+        ylab( 'SPEI' ) + 
+        xlab( 'Year' ) +
+        geom_vline( xintercept = 2006,
+                    lty  = 2 ) + 
+        theme( axis.title      = element_text( size = 10),
+               legend.position = 'none' )  
+
+g <- arrangeGrob(p1,p3,p2,p4,nrow=2,ncol=2)
+ggsave(filename = 'results/climate/raw_yr_clim.tiff',
+       plot = g,
+       dpi = 300, width = 8, height = 6, units = "in",
+       compression = 'lzw')
+
+
 # histograms of anomalies -------------------------------------
 p1 <- clim_mat %>%
         subset( grepl('_t0$',measure) ) %>% 
@@ -339,3 +416,72 @@ clim_yr %>%
                                     angle = 0) ) + 
   ggsave('results/climate/yr_anom_vs_year.tiff', 
          width=12, height=5, compression = 'lzw')
+
+
+# Dual two axes -------------
+
+
+clim_yr %>% head
+spread(clim_raw, measure, value) %>% 
+  .$ppt_raw %>% sd
+
+735 + (244.5898*2)
+
+# attempt two axes
+# spread(clim_raw, measure, value) %>% 
+clim_yr %>% 
+  ggplot( aes(x = year) ) + 
+  geom_line( aes(y=ppt_anom),
+             lwd = 2,
+             color = 'black') +
+  scale_y_continuous(  ) + 
+  ylab( "Precipitation (mm)") +
+  geom_line( aes(y=tmp_anom/2),
+             lwd = 2,
+             color = 'red') + 
+  scale_y_continuous(sec.axis = sec_axis(~.*2,
+                                         name = "Temperature (°C)")
+                    )
+
+                                         breaks = c(-1, 0, 2),
+                                         labels = c('11','12','13')
+
+  scale_colour_colorblind() + 
+  ylab( 'Yearly anomaly' ) + 
+  xlab( 'Year' ) +
+  geom_vline( xintercept = 2006,
+              lty  = 2 ) + 
+  theme( axis.title = element_text( size = 20),
+         axis.text  = element_text( size  = 20,
+                                    angle = 0) )
+
+
+# load library for axf data
+# devtools::install_github('MarkusLoew/ReadAxfBOM')
+library(ReadAxfBOM) 
+
+# import data
+obs <- ReadAxfBOM("http://www.bom.gov.au/fwo/IDV60901/IDV60901.94866.axf")
+
+# show first observations
+head(obs)
+
+
+# two scales
+ggplot(obs, aes(x = Timestamp)) +
+  geom_line(aes(y = air_temp, colour = "Temperature")) +
+  geom_line(aes(y = rel_hum/5, colour = "Humidity")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*5, 
+                                                name = "Relative humidity [%]")
+                            )
+# now adding the secondary axis, following the example in the help file ?scale_y_continuous
+# and, very important, reverting the above transformation
+
+
+# modifying colours and theme options
+p <- p + scale_colour_manual(values = c("blue", "red"))
+p <- p + labs(y = "Air temperature [°C]",
+              x = "Date and time",
+              colour = "Parameter")
+p <- p + theme(legend.position = c(0.8, 0.9))
+p
