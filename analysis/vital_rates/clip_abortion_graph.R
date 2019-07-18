@@ -130,3 +130,15 @@ select(abor_df, year, location, ab_r_m, rep_ind) %>%
   spread( year, ab_lab ) %>% 
   write.csv( 'results/vital_rates/abor_rates_ind_rep.csv',
              row.names=F)
+
+# store consumption rates, with sample sizes
+read_xlsx('data/consumption.xlsx') %>% 
+  select( Site, Year, nplants, Mean_consumption) %>% 
+  mutate( Mean_consumption = as.numeric(Mean_consumption) ) %>% 
+  mutate( cons = round(Mean_consumption, 3) ) %>% 
+  mutate( cons = paste0(cons,' (',nplants,')') ) %>% 
+  select( Year, Site, cons ) %>% 
+  mutate( cons = replace(cons, cons == 'NA (NA)', NA) ) %>% 
+  spread( Year, cons ) %>% 
+  write.csv( 'results/vital_rates/cons_rates_rep.csv',
+             row.names=F)
