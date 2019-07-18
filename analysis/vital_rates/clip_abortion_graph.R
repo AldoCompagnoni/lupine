@@ -56,7 +56,10 @@ ab_cons_df <- full_join(abor_df, cons_df) %>%
                         Consumption = Mean_consumption ) %>% 
                 gather(measure, value, Abortion, Consumption)
 
-# abortion
+
+# plots ------------------------------------------------------
+
+# abortion/consumption graph
 ggplot(ab_cons_df) + 
   geom_line( aes(x     = year,
                  y     = value,
@@ -71,6 +74,55 @@ ggplot(ab_cons_df) +
   ggsave('results/vital_rates/abort_consumption.tiff',
          height=6.3,width=6.3,compression='lzw')
     
+
+# abortion 
+abor_df %>% 
+  subset( year > 2009 & year < 2018 ) %>% 
+  rename( pop = location ) %>% 
+  mutate( pop = gsub('\\(|\\)|[0-8]| ','',pop)) %>% 
+  mutate( pop = gsub('99','9',pop) ) %>% 
+  ggplot() +
+  geom_line( aes(x     = year, 
+                 y     = ab_r_m, 
+                 color = pop ),
+             lwd = 1.5) +
+  scale_colour_colorblind() +
+  theme( axis.title = element_text( size = 20), 
+         axis.text = element_text( size = 15), 
+         legend.text = element_text( size = 10), 
+         legend.title = element_text( size = 15), 
+         legend.margin =  margin(t = 0, r = 10, b = 0, l = 2),
+         legend.box.margin = margin(-10,-10,-10,-10) ) +
+  labs( x     = 'Year',
+        y     = 'Average abortion rate',
+        color = 'Population' ) +
+  ggsave('results/vital_rates/abortion.tiff',
+         height=5,width=6.3,compression='lzw')
+
+# consumption 
+cons_df %>% 
+  # subset( year > 2009 & year < 2018 ) %>% 
+  rename( pop = location ) %>% 
+  mutate( pop = gsub('\\(|\\)|[0-8]| ','',pop)) %>% 
+  mutate( pop = gsub('99','9',pop) ) %>% 
+  ggplot() +
+  geom_line( aes(x     = year, 
+                 y     = Mean_consumption, 
+                 color = pop ),
+             lwd = 1.5) +
+  scale_colour_colorblind() +
+  theme( axis.title = element_text( size = 20), 
+         axis.text = element_text( size = 15), 
+         legend.text = element_text( size = 10), 
+         legend.title = element_text( size = 15), 
+         legend.margin =  margin(t = 0, r = 10, b = 0, l = 2),
+         legend.box.margin = margin(-10,-10,-10,-10) ) +
+  labs( x     = 'Year',
+        y     = 'Average consumption rate',
+        color = 'Population' ) +
+  ggsave('results/vital_rates/consumption.tiff',
+         height=5,width=6.3,compression='lzw')
+
 
 # abortion 
 abor_tot_df  <- read.csv('data/lupine_all.csv') %>% 
