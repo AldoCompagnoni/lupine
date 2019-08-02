@@ -10,13 +10,11 @@ source('analysis/vital_rates/plot_binned_prop.R')
 options(stringsAsFactors = F)
 library(dplyr)
 library(tidyr)
-library(mgcv)
 library(ggplot2)
 library(readxl)
+library(rstan)
 library(testthat)
 library(lme4)
-library(lintr)
-library(goodpractice)
 
 
 # data
@@ -32,44 +30,78 @@ germ        <- read_xlsx('data/seedbaskets.xlsx') %>%
                  select(g0:g2) %>% 
                  colMeans
 germ_adj    <- read.csv('results/ml_mod_sel/germ/germ_adj.csv')
+fit         <- readRDS('results/vital_rates/bayes/lupine_allvr_annual_anom.rds')
 
 # format climate data ----------------------------------------
-years     <- c(2005:2018)
+years     <- 1990:2018
 m_obs     <- 5
 m_back    <- 36
 
 # calculate yearly anomalies
-year_anom <- function(x, var){
+year_anom <- function(clim_x, clim_var = "ppt", 
+                      years, m_back, m_obs ){
   
-  # set names of climate variables
-  clim_names <- paste0( var,c('_t0','_tm1','_t0_tm1','_t0_tm2') )
+  # "spread" the 12 months
+  clim_m <- select(clim_x, -clim_var )
   
-  mutate(x, 
-         avgt0     = x %>% select(V1:V12) %>% rowSums,
-         avgtm1    = x %>% select(V13:V24) %>% rowSums,
-         avgt0_tm1 = x %>% select(V1:V24) %>% rowSums,
-         avgt0_tm2 = x %>% select(V1:V36) %>% rowSums ) %>% 
-    select(year, avgt0, avgtm1, avgt0_tm1, avgt0_tm2) %>% 
-    setNames( c('year',clim_names) )
+  # select temporal extent
+  clim_back <- function(yrz, m_obs, dat){
+    id <- which(dat$year == yrz & dat$month_num == m_obs)
+    r  <- c( id:(id - (m_back-1)) )
+    return(dat[r,"clim_value"])
+  }
+  
+  # climate data in matrix form 
+  year_by_month_mat <- function(dat, years){
+    do.call(rbind, dat) %>% 
+      as.data.frame %>%
+      tibble::add_column(year = years, .before=1)
+  }
+  
+  # calculate monthly precipitation values
+  clim_x_l  <- lapply(years, clim_back, m_obs, clim_m)
+  x_clim    <- year_by_month_mat(clim_x_l, years) %>% 
+                  gather(month,t0,V1:V12) %>% 
+                  select(year,month,t0) %>% 
+                  mutate( month = gsub('V','',month) ) %>%
+                  mutate( month = as.numeric(month) )
+  
+  if( clim_var == 'ppt'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( ppt_sum = sum(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( ppt_t0   = scale(ppt_sum)[,1] ) %>% 
+                # add mean and SD (for plots)
+                mutate( ppt_mean = mean(ppt_sum),
+                        ppt_sd   = sd(ppt_sum) )
+  }
+  if( clim_var == 'tmp'){
+    raw_df <- x_clim %>% 
+                group_by(year) %>% 
+                summarise( tmp_ann_mean = mean(t0) ) %>% 
+                ungroup %>% 
+                arrange( year ) %>% 
+                mutate( tmp_t0   = scale(tmp_ann_mean)[,1] ) %>% 
+                mutate( tmp_mean = mean(tmp_ann_mean),
+                        tmp_sd   = sd(tmp_ann_mean) )
+  }
+  
+  raw_df
   
 }
 
 # format climate - need to select climate predictor first 
 ppt_mat <- subset(clim, clim_var == "ppt") %>%
-              prism_clim_form("precip", years, m_back, m_obs) %>% 
-              year_anom('ppt')
+              year_anom("ppt", years, m_back, m_obs)
 
-tmp_mat <- subset(clim, clim_var == 'tmean') %>% 
-              prism_clim_form('tmean', years, m_back, m_obs) %>% 
-              year_anom('tmp')
-  
-enso_mat <- subset(enso, clim_var == 'oni' ) %>%
-              month_clim_form('oni', years, m_back, m_obs) %>% 
-              year_anom('oni')
+tmp_mat <- subset(clim, clim_var == 'tmean')  %>% 
+              year_anom("tmp", years, m_back, m_obs)
 
 # put together all climate
 clim_mat <- Reduce( function(...) full_join(...),
-                    list(ppt_mat,tmp_mat,enso_mat) )
+                    list(ppt_mat,tmp_mat) )
 
 
 # vital rates format --------------------------------------------------------------
@@ -86,43 +118,43 @@ site_df     <- select(lupine_df, year, location) %>%
 surv        <- subset(lupine_df, !is.na(surv_t1) ) %>%
                   subset( area_t0 != 0) %>%
                   mutate( log_area_t0 = log(area_t0),
-                          year        = year ) %>% 
+                          year        = year ) %>%
                   mutate( log_area_t02 = log_area_t0^2,
-                          log_area_t03 = log_area_t0^3) %>% 
-                  left_join( clim_mat ) 
+                          log_area_t03 = log_area_t0^3) %>%
+                  left_join( clim_mat )
 
-grow        <- lupine_df %>% 
+grow        <- lupine_df %>%
                   # remove sleedings at stage_t0
-                  subset(!(stage_t0 %in% c("DORM", "NF")) & 
+                  subset(!(stage_t0 %in% c("DORM", "NF")) &
                          !(stage_t1 %in% c("D", "NF", "DORM")) ) %>%
                   # remove zeroes from area_t0 and area_t1
                   subset( area_t0 != 0) %>%
-                  subset( area_t1 != 0) %>% 
+                  subset( area_t1 != 0) %>%
                   mutate( log_area_t1  = log(area_t1),
                           log_area_t0  = log(area_t0),
                           log_area_t02 = log(area_t0)^2,
-                          year         = year ) %>% 
-                  left_join( clim_mat ) 
+                          year         = year ) %>%
+                  left_join( clim_mat )
 
-flow        <- subset(lupine_df, !is.na(flow_t0) ) %>% 
-                  subset( area_t0 != 0) %>% 
+flow        <- subset(lupine_df, !is.na(flow_t0) ) %>%
+                  subset( area_t0 != 0) %>%
                   mutate( log_area_t0  = log(area_t0),
                           log_area_t02 = log(area_t0)^2,
-                          year         = year ) %>% 
-                  left_join( clim_mat ) 
+                          year         = year ) %>%
+                  left_join( clim_mat )
 
-fert        <- subset(lupine_df, flow_t0 == 1 ) %>% 
-                  subset( area_t0 != 0) %>% 
-                  subset( !is.na(numrac_t0) ) %>% 
+fert        <- subset(lupine_df, flow_t0 == 1 ) %>%
+                  subset( area_t0 != 0) %>%
+                  subset( !is.na(numrac_t0) ) %>%
                   # remove non-flowering individuals
-                  subset( !(flow_t0 %in% 0) ) %>% 
+                  subset( !(flow_t0 %in% 0) ) %>%
                   mutate( log_area_t0  = log(area_t0),
                           log_area_t02 = log(area_t0)^2,
-                          year         = year ) %>% 
+                          year         = year ) %>%
                   # remove zero fertility (becase fertility should not be 0)
                   # NOTE: in many cases, notab_t1 == 0, because numab_t1 == 0 also
-                  subset( !(numrac_t0 %in% 0) ) %>% 
-                  left_join( clim_mat ) 
+                  subset( !(numrac_t0 %in% 0) ) %>%
+                  left_join( clim_mat )
 
 abor_df  <- subset(lupine_df, !is.na(flow_t0) & flow_t0 == 1 ) %>% 
                 subset( !is.na(numrac_t0) ) %>% 
@@ -187,39 +219,39 @@ germ_df     <- site_df %>%
 
 # 1. reate SSD for each population -------------------------------
 
-
 # models ---------------------------------------------------------
-mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_tm1 + 
-                  (1 | year) + (0 + log_area_t0 | year) + 
+mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + 
+                            tmp_t0 +
+                  (1 | year) + (0 + log_area_t0 | year) +
                   (1 | location) + (0 + log_area_t0 | location),
                   data=surv, family='binomial')
-mod_g    <- lmer( log_area_t1 ~ log_area_t0 + 
-                  (1 | year) + (0 + log_area_t0 | year) + 
+mod_g    <- lmer( log_area_t1 ~ log_area_t0 +
+                  (1 | year) + (0 + log_area_t0 | year) +
                   (1 | location) + (0 + log_area_t0 | location),
                   data=grow)
-mod_g2   <- lm( log_area_t1 ~ log_area_t0, data=grow) 
+mod_g2   <- lm( log_area_t1 ~ log_area_t0, data=grow)
 g_lim    <- range( c(grow$log_area_t0, grow$log_area_t1) )
-mod_fl   <- glmer(flow_t0 ~ log_area_t0 + tmp_tm1 + 
+mod_fl   <- glmer(flow_t0 ~ log_area_t0 + tmp_t0 +
                   (1 | year) + (0 + log_area_t0 | year) +
                   (1 | location) + (0 + log_area_t0 | location),
                   data=flow, family='binomial')
-mod_fr   <- glmer(numrac_t0 ~ log_area_t0 + tmp_tm1 + 
-                  (1 | year) + (0 + log_area_t0 | year) + 
-                  (1 | location) + (0 + log_area_t0 | location), 
+mod_fr   <- glmer(numrac_t0 ~ log_area_t0 + tmp_t0 +
+                  (1 | year) + (0 + log_area_t0 | year) +
+                  (1 | location) + (0 + log_area_t0 | location),
                   data=fert, family='poisson')
 # mod_fr   <- MASS::glm.nb(numrac_t0 ~ log_area_t0 , data=fert )
-fr_rac   <- glm(NumFruits ~ 1, data=fruit_rac, family='poisson')        
-seed_fr  <- glm(SEEDSPERFRUIT ~ 1, 
-                data=mutate(seed_x_fr,  
+fr_rac   <- glm(NumFruits ~ 1, data=fruit_rac, family='poisson')
+seed_fr  <- glm(SEEDSPERFRUIT ~ 1,
+                data=mutate(seed_x_fr,
                             # substitute 0 value with really low value (0.01)
-                            SEEDSPERFRUIT = replace(SEEDSPERFRUIT, 
-                                                    SEEDSPERFRUIT == 0, 
+                            SEEDSPERFRUIT = replace(SEEDSPERFRUIT,
+                                                    SEEDSPERFRUIT == 0,
                                                     0.01) ),
                 family=Gamma(link = "log"))
 
-# vital rate models 
+# vital rate models
 surv_p    <- fixef(mod_s)
-grow_p    <- fixef(mod_g) 
+grow_p    <- fixef(mod_g)
 grow_p    <- c(grow_p, summary(mod_g)$sigma)
 flow_p    <- fixef(mod_fl)
 fert_p    <- fixef(mod_fr)
@@ -229,19 +261,20 @@ seed_fr_p <- coef(seed_fr) %>% exp
 germ_p    <- germ * (1 - 0.43) # Old post-dispersal predation estimate
 
 
+
 # IPM parameters -------------------------------------------------------------
 
 # function to extract values
 extr_value <- function(x, field){ subset(x, type_coef == 'fixef' & ranef == field )$V1 }
 
-# list of mean IPM parameters. 
-pars_mean   <- list( # adults vital rates           
+# list of mean IPM parameters.
+pars_mean   <- list( # adults vital rates
                      surv_b0      = surv_p['(Intercept)'],
                      surv_b1      = surv_p['log_area_t0'],
                      surv_b2      = surv_p['log_area_t02'],
                      surv_b3      = surv_p['log_area_t03'],
                      surv_clim    = surv_p['tmp_tm1'],
-                     
+
                      grow_b0      = grow_p['(Intercept)'],
                      grow_b1      = grow_p['log_area_t0'],
                      grow_sig     = grow_p[3],
@@ -249,29 +282,29 @@ pars_mean   <- list( # adults vital rates
                      flow_b0      = flow_p['(Intercept)'],
                      flow_b1      = flow_p['log_area_t0'],
                      flow_clim    = flow_p['tmp_tm1'],
-                     
+
                      fert_b0      = fert_p['(Intercept)'],
                      fert_b1      = fert_p['log_area_t0'],
                      fert_clim    = fert_p['tmp_tm1'],
-                     
+
                      abort        = 0.22, # hardcoded for now!
                      clip         = 0.57, # hardcoded for now!
-                     
+
                      fruit_rac    = fr_rac_p,
                      seed_fruit   = seed_fr_p,
                      g0           = germ_p['g0'],
                      g1           = germ_p['g1'],
                      g2           = germ_p['g2'],
-                     
+
                      recr_sz      = size_sl_p$mean_sl_size,
                      recr_sd      = size_sl_p$sd_sl_size,
-                     
+
                      L_sl         = size_sl_p$min_sl_size,
                      U_sl         = size_sl_p$max_sl_size,
-                     
+
                      L            = g_lim[1],
                      U            = g_lim[2],
-                     
+
                      mat_siz_sl = 100,
                      mat_siz    = 100 )
 
@@ -282,7 +315,8 @@ expect_equal(pars_mean %>%
                sum, 0)
 
 
-# update with LOCATION pars only: for site-specific starting N vectors
+# update with LOCATION pars only: 
+# for site-specific starting N vectors
 update_par <- function(loc_n){
   
   pars_yr <- pars_mean
@@ -358,8 +392,8 @@ update_par <- function(loc_n){
 }
 
 # test function
-update_par(2011, "POP9 (9)")$clip
-update_par(2011, "ATT (8)")$clip
+update_par("POP9 (9)")$surv_b0
+update_par("ATT (8)")$clip
 update_par("AL (1)")$clip
 
 
@@ -498,7 +532,7 @@ kernel <- function(tmp_anom, pars){
   
 }
 
-# average kernels for each population 
+# average kernels for each population
 loc_v       <- lupine_df$location %>% unique
 ker_avg_pop <- function(loc_n) kernel(0, update_par(loc_n) )
 ker_avg_l   <- lapply(loc_v, ker_avg_pop) %>% setNames( loc_v )
@@ -509,47 +543,48 @@ ssd_ker     <- function(x){
   w  <- Re(eK$vectors[,1])
   w/sum(w)
 }
-  
-# list of stable stage distributions 
+
+# list of stable stage distributions
 ssd_l  <- lapply(ker_avg_l, ssd_ker)
 
 # starting population sizes
-obs_n  <- lupine_cnt %>% 
+obs_n  <- lupine_cnt %>%
             mutate( AL = replace(AL,
                                  year == 2018,
-                                 AL[year == 2017]) ) %>% 
-            subset( year == 2018 ) %>% 
-            select( -AL.REST ) %>% 
-            gather( Site, pop_n, AL:POP9 ) %>% 
-            left_join( site_df ) %>% 
+                                 AL[year == 2017]) ) %>%
+            subset( year == 2018 ) %>%
+            select( -AL.REST ) %>%
+            gather( Site, pop_n, AL:POP9 ) %>%
+            left_join( site_df ) %>%
             select( -Site )
 
 # starting pulation vectors
 start_vec <- function(loc_n){
-  
+
   ssd_x    <- ssd_l[loc_n] %>% unlist %>% as.numeric
-  
-  # redistribute individuals across non-seeds 
-  cnt      <- subset(obs_n, 
+
+  # redistribute individuals across non-seeds
+  cnt      <- subset(obs_n,
                      location == loc_n)$pop_n
-  
+
   # proportions of individuals out of the seedbank
   non_sl_p <- ssd_x[-c(1:2)] %>% sum
-  
+
   # seed bank 1 and 2 sensu Dangremond et al. 2010
   sb2      <- (ssd_x[1] * cnt) / non_sl_p
   sb1      <- (ssd_x[2] * cnt) / non_sl_p
-  
+
   # prop individuals in non seedling stages
   non_sl   <- ssd_x[-c(1:2)] * cnt
-  
+
   # redistributed individuals
   c(sb2,sb1,non_sl)
-  
+
 }
 
 # Starting vector!
 start_v_l <- lapply(loc_v, start_vec) %>% setNames(loc_v)
+
 
 
 # 3. IBM stochastic simulations -------------------------------------
