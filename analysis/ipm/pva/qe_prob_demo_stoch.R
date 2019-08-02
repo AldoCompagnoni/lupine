@@ -273,7 +273,7 @@ pars_mean   <- list( # adults vital rates
                      surv_b1      = surv_p['log_area_t0'],
                      surv_b2      = surv_p['log_area_t02'],
                      surv_b3      = surv_p['log_area_t03'],
-                     surv_clim    = surv_p['tmp_tm1'],
+                     surv_clim    = surv_p['tmp_t0'],
 
                      grow_b0      = grow_p['(Intercept)'],
                      grow_b1      = grow_p['log_area_t0'],
@@ -281,11 +281,11 @@ pars_mean   <- list( # adults vital rates
 
                      flow_b0      = flow_p['(Intercept)'],
                      flow_b1      = flow_p['log_area_t0'],
-                     flow_clim    = flow_p['tmp_tm1'],
+                     flow_clim    = flow_p['tmp_t0'],
 
                      fert_b0      = fert_p['(Intercept)'],
                      fert_b1      = fert_p['log_area_t0'],
-                     fert_clim    = fert_p['tmp_tm1'],
+                     fert_clim    = fert_p['tmp_t0'],
 
                      abort        = 0.22, # hardcoded for now!
                      clip         = 0.57, # hardcoded for now!
@@ -571,14 +571,14 @@ start_vec <- function(loc_n){
   non_sl_p <- ssd_x[-c(1:2)] %>% sum
 
   # seed bank 1 and 2 sensu Dangremond et al. 2010
-  sb2      <- (ssd_x[1] * cnt) / non_sl_p
-  sb1      <- (ssd_x[2] * cnt) / non_sl_p
+  sb2      <- ( (ssd_x[1] * cnt) / non_sl_p ) %>% round
+  sb1      <- ( (ssd_x[2] * cnt) / non_sl_p ) %>% round
 
-  # prop individuals in non seedling stages
-  non_sl   <- ssd_x[-c(1:2)] * cnt
-
+  # count with seed bank
+  cnt_sb   <- cnt + sb1 + sb2
+  
   # redistributed individuals
-  c(sb2,sb1,non_sl)
+  round(ssd_x * cnt_sb)
 
 }
 
