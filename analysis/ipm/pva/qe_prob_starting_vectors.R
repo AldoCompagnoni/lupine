@@ -544,7 +544,7 @@ start_vec <- function(loc_n){
   cnt_tot  <- sb2 + sb1 + cnt
   
   # prop individuals in non seedling stages
-  non_sl   <- ssd_x[-c(1:2)] * cnt
+  non_sl   <- ssd_x[-c(1:2)] * cnt_tot
   
   # redistributed individuals
   c(sb2, sb1, non_sl)
@@ -557,7 +557,7 @@ start_v_l <- lapply(loc_v, start_vec) %>% setNames(loc_v)
 # store starting vectors
 write_start_v <- function(x,y){
   
-  out_file <- paste0('results/ipm/forecast/', y, '_start_vector.csv')
+  out_file <- paste0('results/ipm/forecast/start_vector/', y, '_start_vector.csv')
   
   write.csv(x, out_file, row.names=F)
   
