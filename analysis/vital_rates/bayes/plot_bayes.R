@@ -12,7 +12,9 @@ library(dplyr)
 library(tidyr)
 library(rstan)
 library(ggplot2)
+library(ggthemes)
 library(testthat)
+
 
 
 # data
@@ -24,6 +26,7 @@ clim        <- read.csv("data/prism_point_reyes_87_18.csv")
 enso        <- read.csv("data/enso_data.csv")
 fit_mod     <- readRDS('C:/Users/ac22qawo/lupine/lupine_vr_bayes-5270385_lupine_surv_nc.RDS')
 fit_mod     <- readRDS('C:/Users/ac22qawo/lupine/lupine_vr_bayes-5270262_lupine_nc.RDS')
+fit_mod     <- readRDS('results/vital_rates/bayes/lupine_allvr_annual_anom.RDS')
 
 # format climate data ----------------------------------------
 years     <- c(2005:2018)
@@ -176,25 +179,23 @@ surv_pan_df <- bind_rows( surv_bin_l ) %>%
                   mutate( log_area_t02 = log_area_t0^2, 
                           log_area_t03 = log_area_t0^3,
                           tmp_tm1      = 0,
-                          transition   = paste( paste0(year - 1), 
-                                                substr(paste0(year),3,4),
+                          transition   = paste( paste0(year), 
+                                                substr(paste0(year+1),3,4),
                                                 sep='-') ) %>% 
                   mutate( year         = as.integer(year - 2004),
                           location     = location %>% as.factor %>% as.integer )
 
 flow_pan_df <- bind_rows( flow_bin_l ) %>% 
                   mutate( loc_lab = location ) %>% 
-                  mutate( transition   = paste( paste0(year - 1), 
-                                                substr(paste0(year),3,4),
-                                                sep='-') ) %>% 
+                  mutate( transition   = paste0(year) ) %>% 
                   mutate( year         = as.integer(year - 2004),
                           location     = location %>% as.factor %>% as.integer )
 
 # growth
 grow_pan_df <- grow %>% 
                   mutate( loc_lab = location ) %>% 
-                  mutate( transition   = paste( paste0(year - 1), 
-                                                substr(paste0(year),3,4),
+                  mutate( transition   = paste( paste0(year), 
+                                                substr(paste0(year+1),3,4),
                                                 sep='-') ) %>% 
                   mutate( year         = as.integer(year - 2004),
                           location     = location %>% as.factor %>% as.integer )
@@ -204,9 +205,7 @@ grow_pan_df <- grow %>%
 # data frame with data
 fert_pan_df <- fert %>% 
                   mutate( loc_lab    = location ) %>% 
-                  mutate( transition = paste( paste0(year - 1), 
-                                                substr(paste0(year),3,4),
-                                                sep='-') ) %>% 
+                  mutate( transition = paste0(year) ) %>% 
                   mutate( year      = as.integer(year - 2004),
                           location  = location %>% as.factor %>% as.integer )
 
@@ -226,9 +225,7 @@ fert_pred_df <- expand.grid( year        = surv$year %>% unique %>% sort,
                              log_area_t0 = x_fert,
                              stringsAsFactors = F ) %>% 
                   mutate( loc_lab    = location ) %>% 
-                  mutate( transition   = paste( paste0(year - 1), 
-                                                substr(paste0(year),3,4),
-                                                sep='-') ) %>% 
+                  mutate( transition   = paste0(year) ) %>% 
                   mutate(   year         = as.integer(year - 2004),
                             location     = location %>% as.factor %>% as.integer ) %>% 
                   right_join( fert_all )
@@ -368,7 +365,10 @@ ggplot(data  = surv_df,
   geom_line(aes(x = log_area_t0,
                 y = yhat),
             lwd = 1,
-            alpha = 0.5)+
+            alpha = 0.5) +
+  scale_y_continuous( breaks = c(0.1, 0.5, 0.9) ) +
+  scale_x_continuous( breaks = c(1.1, 4.4, 7.7),
+                      labels = c(1.1, 4.4, 7.7) ) +
   # split in panels
   facet_grid(loc_lab ~ transition) +
   theme_bw() +
@@ -382,7 +382,8 @@ ggplot(data  = surv_df,
                                                        'mm') ),
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
          panel.spacing = unit('0.5',unit='mm') ) +
-  ggtitle("Survival of all plants" ) +
+  labs( x = expression('log(Z)'[t]),
+        y = expression('Survival to time t+1') ) + 
   ggsave(filename = "results/vital_rates/surv_all_bayes.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
@@ -400,6 +401,8 @@ ggplot(data  = grow_df,
                    slope     = beta),
             lwd = 1,
             alpha = 0.5) +
+  scale_x_continuous( breaks = c(1.1, 4.4, 7.7),
+                      labels = c(1.1, 4.4, 7.7) ) +
   # split in panels
   facet_grid(loc_lab ~ transition) +
   theme_bw() +
@@ -413,7 +416,8 @@ ggplot(data  = grow_df,
                                                        'mm') ),
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
          panel.spacing = unit('0.5',unit='mm') ) +
-  ggtitle("Growth" ) +
+  labs( x = expression('log(Z)'[t]),
+        y = expression('log(Z)'[t+1]) ) +
   ggsave(filename = "results/vital_rates/growth_bayes.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
@@ -430,7 +434,10 @@ ggplot(data  = flow_df,
   geom_line(aes(x = log_area_t0,
                 y = yhat),
             lwd = 1,
-            alpha = 0.5)+
+            alpha = 0.5) + 
+  scale_y_continuous( breaks = c(0.1, 0.5, 0.9) ) +
+  scale_x_continuous( breaks = c(1.1, 4.4, 7.7),
+                      labels = c(1.1, 4.4, 7.7) ) +
   # split in panels
   facet_grid(loc_lab ~ transition) +
   theme_bw() +
@@ -444,8 +451,9 @@ ggplot(data  = flow_df,
                                                        'mm') ),
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
          panel.spacing = unit('0.5',unit='mm') ) +
-  ggtitle("Probability of flowering" ) +
-  ggsave(filename = "results/vital_rates/fert_bayes.tiff",
+  labs( x = expression('log(Z)'[t]),
+        y = 'Probability of flowering at time t' ) +
+  ggsave(filename = "results/vital_rates/flow_bayes.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
         
@@ -462,7 +470,9 @@ ggplot(data  = fert_pan_df,
               aes(x = log_area_t0,
                   y = yhat),
             lwd = 1,
-            alpha = 0.5)+
+            alpha = 0.5) +
+  scale_x_continuous( breaks = c(1.1, 4.4, 7.7),
+                      labels = c(1.1, 4.4, 7.7) ) +
   # split in panels
   facet_grid(loc_lab ~ transition) +
   theme_bw() +
@@ -475,8 +485,9 @@ ggplot(data  = fert_pan_df,
                                        margin = margin(0.5,0.5,0.5,0.5,
                                                        'mm') ),
          strip.switch.pad.wrap = unit('0.5',unit='mm'),
-         panel.spacing = unit('0.5',unit='mm') ) +
-  ggtitle("Fertility" ) +
+         panel.spacing = unit('0.5',unit='mm') ) + 
+  labs( x = expression('log(Z)'[t]),
+        y = 'Number of inflorescences at time t' ) +
   ggsave(filename = "results/vital_rates/fert_bayes.tiff",
          dpi = 300, width = 6.3, height = 4, units = "in",
          compression = 'lzw')
@@ -623,6 +634,14 @@ df_binned_prop <- function(df, n_bins, siz_var, rsp_var){
 }
 
 
+# calculate y-coordinates of A-D based on range of y values
+y_coord_calc <- function(x, prop){
+  
+  add_coord <- (range(x)[2] - range(x)[1]) * prop
+  range(x)[1] + add_coord
+  
+}
+
 
 # Surival
 
@@ -640,27 +659,30 @@ post_pred <- function(ii, tmp_anom ){
 }
 
 # hot and cold temperature
-pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+pred_hot <- lapply(1:100, post_pred, 2 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
-pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+pred_cold <- lapply(1:100,post_pred, 0 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
 # plot it all out
 binned_df <- df_binned_prop(surv, 10, log_area_t0, surv_t1) 
   
+
+
 p1 <- ggplot( pred_hot ) +
   geom_ribbon( aes( x    = x, 
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'red'
+               fill  = '#D55E00',
+               color  = '#D55E00'
               ) + 
   ylim( 0, 1 ) +
   geom_ribbon( data = pred_cold,
@@ -668,13 +690,20 @@ p1 <- ggplot( pred_hot ) +
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'blue'
+               fill  = '#0072B2',
+               color = '#0072B2'
               ) + 
   geom_point( data = binned_df, 
               aes(x=x,
                   y=y) 
               ) + 
-  labs( y = 'Proportion surviving',
+  geom_text( aes( x = 0,
+                  y = y_coord_calc(c(0,1),0.98),
+                  label = 'A)') ) +
+  theme_classic( ) + 
+  theme( axis.title = element_text( size = 20) ) + 
+  labs( y = 'Prop. surviving to t+1',
+  # labs( y = 'Proportion surviving to t+1',
         x = expression('log(size)'[t]) ) 
 
 
@@ -692,17 +721,17 @@ post_pred <- function(ii, tmp_anom ){
 }
 
 # hot and cold temperature
-pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+pred_hot <- lapply(1:100,post_pred, 0 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
-pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+pred_cold <- lapply(1:100,post_pred, 2 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
 
 p2 <- ggplot( grow ) +
@@ -716,6 +745,11 @@ p2 <- ggplot( grow ) +
                alpha = 0.8,
                fill = 'grey'
               ) +
+  theme_classic( ) + 
+  theme( axis.title = element_text( size = 20) ) + 
+  geom_text( aes( x = 0,
+                  y = y_coord_calc(grow$log_area_t1,0.98),
+                  label = 'B)') ) +
   labs( y = expression('log(size)'[t+1]),
         x = expression('log(size)'[t]) ) 
 
@@ -736,17 +770,17 @@ post_pred <- function(ii, tmp_anom ){
 }
 
 # hot and cold temperature
-pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+pred_hot <- lapply(1:100,post_pred, 2 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
-pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+pred_cold <- lapply(1:100,post_pred, 0 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
               
 # plot it all out
 binned_df <- df_binned_prop(flow, 10, log_area_t0, flow_t0) 
@@ -756,7 +790,8 @@ p3 <- ggplot( pred_hot ) +
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'red'
+               fill  = "#D55E00",
+               color = "#D55E00"
               ) + 
   ylim( 0, 1 ) +
   geom_ribbon( data = pred_cold,
@@ -764,12 +799,18 @@ p3 <- ggplot( pred_hot ) +
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'blue'
+               fill  = '#0072B2',
+               color = '#0072B2'
               ) + 
   geom_point( data = binned_df, 
               aes(x=x,
                   y=y) 
               ) + 
+  geom_text( aes( x = 0,
+                  y = y_coord_calc(c(0,1),0.98),
+                  label = 'C)') ) +
+  theme_classic() + 
+  theme( axis.title = element_text( size = 20) ) + 
   labs( y = 'Proportion flowering',
         x = expression('log(size)'[t]) ) 
 
@@ -789,18 +830,19 @@ post_pred <- function(ii, tmp_anom ){
 }
 
 # hot and cold temperature
-pred_hot <- lapply(1:100,post_pred, 5 ) %>% 
+pred_hot <- lapply(1:100,post_pred, 2 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.955) )
               
-pred_cold <- lapply(1:100,post_pred, -5 ) %>% 
+pred_cold <- lapply(1:100,post_pred, 0 ) %>% 
                 bind_rows %>% 
                 group_by( x ) %>% 
-                summarise( y_min = quantile(y_hat, prob = 0.1),
-                           y_max = quantile(y_hat, prob = 0.9) )
-              
+                summarise( y_min = quantile(y_hat, prob = 0.05),
+                           y_max = quantile(y_hat, prob = 0.95) )
+   
+
 
 p4 <- ggplot( fert ) +
   geom_point( aes( x = log_area_t0,
@@ -811,16 +853,23 @@ p4 <- ggplot( fert ) +
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'red'
+               fill  = "#D55E00",
+               color = "#D55E00"
               ) + 
   geom_ribbon( data = pred_cold,
                aes( x    = x, 
                     ymin = y_min,
                     ymax = y_max ),
                alpha = 0.5,
-               fill = 'blue'
+               fill  = '#0072B2',
+               color = '#0072B2'
               ) + 
-  labs( y = 'Proportion flowering',
+  geom_text( aes( x = 0,
+                  y = y_coord_calc(fert$numrac_t0, 0.98),
+                  label = 'D)') ) + 
+  theme_classic() + 
+  theme( axis.title = element_text( size = 20) ) + 
+  labs( y = 'Number of inflorescences',
         x = expression('log(size)'[t]) ) 
 
 
@@ -830,6 +879,51 @@ out <- gridExtra::grid.arrange(p1,p2,p3,p4, ncol=2)
 ggsave('results/vital_rates/bayes/vr_posterior_ribbon.tiff',
         out, width=6.3, height=6.3, compression='lzw')
 
+
+# posterior of climate effects ------------------------------
+
+all_pars <- fit_mod %>% 
+              as.matrix %>% 
+              as.data.frame
+
+surv_c_df <- data.frame( vals = density(all_pars$b_c_s)$x, 
+                         dens = density(all_pars$b_c_s)$y,
+                         vr   = 'Survival' )
+flow_c_df <- data.frame( vals = density(all_pars$b_c_f)$x, 
+                         dens = density(all_pars$b_c_f)$y,
+                         vr   = 'Flowering' )
+fert_c_df <- data.frame( vals = density(all_pars$b_c_r)$x, 
+                         dens = density(all_pars$b_c_r)$y,
+                         vr   = 'Inflorescence N.' )
+
+# kernel density of climate posteriors
+c_dens_df <- list(surv_c_df, flow_c_df, fert_c_df) %>% 
+                bind_rows %>% 
+                # change name to match color code (changes order of factors)
+                mutate( vr = replace( vr, vr == 'Inflorescence N.',
+                                      'fertility') )
+                
+# graph 
+ggplot(c_dens_df) +
+  geom_area( aes( vals, dens, fill=vr),
+             alpha = 0.7) +
+  geom_vline( xintercept=0, lty = 2 ) +
+  scale_fill_colorblind() +
+  theme_few() +
+  theme( axis.title = element_text( size = 20), 
+         legend.position = 'bottom',
+         legend.margin =  margin(t = 0, r = 10, b = 0, l = 2),
+         legend.box.margin = margin(-10,-10,-0,-10),
+         legend.title  = element_text( size = 15 ),
+         legend.text   = element_text( size = 15 ) ) +
+  xlim( -2.8, 0.9 ) +
+  labs( y = 'Kernel Probability Density',
+        x = 'Effect size of temperature variation',
+        fill = 'Vital rate') +
+  ggsave('results/vital_rates/bayes/temp_effect_post.tiff',
+         width=6.3, height=6.3, compression='lzw')
+
+  
 
 
 # mod_s    <- glmer(surv_t1 ~ log_area_t0 + log_area_t02 + log_area_t03 + tmp_t0 + 
